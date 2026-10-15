@@ -73,4 +73,51 @@ mod tests {
         let ptr = engine_get_state_json_ptr();
         assert!(!ptr.is_null());
     }
+
+    #[test]
+    fn test_rock_paper_scissors_multipliers() {
+        assert_eq!(UnitType::Knights.multiplier(UnitType::Archers), 2.0);
+        assert_eq!(UnitType::Knights.multiplier(UnitType::Barbarians), 0.5);
+        assert_eq!(UnitType::Archers.multiplier(UnitType::Barbarians), 2.0);
+        assert_eq!(UnitType::Archers.multiplier(UnitType::Knights), 0.5);
+        assert_eq!(UnitType::Barbarians.multiplier(UnitType::Knights), 2.0);
+        assert_eq!(UnitType::Barbarians.multiplier(UnitType::Archers), 0.5);
+    }
+
+    #[test]
+    fn test_condition_recovery_in_fort() {
+        let mut engine = CoreGameEngine::new();
+        // Place squad 0 inside first fort
+        let fort = engine.forts()[0].clone();
+        if let Some(s) = engine.state.squads.iter_mut().find(|s| s.id == "P0") {
+            s.x = fort.x;
+            s.y = fort.y;
+            s.target_x = fort.x;
+            s.target_y = fort.y;
+            s.condition = 50.0;
+        }
+
+        // 2 seconds of idle simulation in fort -> +10.0 condition
+        engine.tick(2.0);
+
+        let s = engine.state.squads.iter().find(|s| s.id == "P0").unwrap();
+        assert!((s.condition - 60.0).abs() < 0.2);
+    }
+
+    #[test]
+    fn test_win_by_flag_capture() {
+        let mut engine = CoreGameEngine::new();
+        let flag = engine.state.flag_position.clone();
+        if let Some(s) = engine.state.squads.iter_mut().find(|s| s.id == "P0") {
+            s.x = flag.x;
+            s.y = flag.y;
+            s.target_x = flag.x;
+            s.target_y = flag.y;
+        }
+
+        engine.tick(0.1);
+
+        assert_eq!(engine.state.mode, GameMode::GameOver);
+        assert_eq!(engine.state.winner, Some(Faction::Player));
+    }
 }

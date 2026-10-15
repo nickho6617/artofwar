@@ -1,4 +1,4 @@
-# The Ancient Art of War — Core Loop Prototype
+# The Ancient Art of War
 
 [![Live Demo](https://img.shields.io/badge/Play_Live-GitHub_Pages-brightgreen?style=for-the-badge&logo=github)](https://nickho6617.github.io/artofwar/)
 

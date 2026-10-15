@@ -8,10 +8,13 @@
     "build:wasm": "cargo build -p artofwar-core --target wasm32-unknown-unknown --release --offline && mkdir -p public && cp target/wasm32-unknown-unknown/release/artofwar_core.wasm public/artofwar_core.wasm",
     "build:web": "tsc && vite build",
     "build": "npm run build:wasm && npm run build:web",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
     "typescript": "^5.4.0",
-    "vite": "^5.2.0"
+    "vite": "^5.2.0",
+    "vitest": "^2.1.9"
   }
 }
