@@ -1,5 +1,7 @@
 # The Ancient Art of War — Core Loop Prototype
 
+[![Live Demo](https://img.shields.io/badge/Play_Live-GitHub_Pages-brightgreen?style=for-the-badge&logo=github)](https://nickho6617.github.io/artofwar/)
+
 A lightweight, high-performance browser tribute to the 1984 real-time tactics classic *The Ancient Art of War* (Evry & Dave Murry / Brøderbund). 
 
 Built without external game engines, this prototype proves out the classic dual-layer loop: strategic campaign maneuvering on a topographic map combined with zoomed-in, real-time tactical auto-battles. It features a dual-core simulation runtime: a primary **Rust + WebAssembly engine** with an automatic **TypeScript fallback**.
