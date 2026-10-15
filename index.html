@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>The Ancient Art of War — Core Loop Prototype</title>
+    <meta name="description" content="A browser strategy prototype: march squads across a strategic map and fight rock-paper-scissors tactical battles against a Sun Tzu-inspired AI." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800&family=Inter:wght@400;600&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <main id="app">
+      <header class="topbar">
+        <h1>The Ancient Art of War</h1>
+        <div class="status">
+          <span id="status-text">Loading…</span>
+          <span id="engine-badge" class="badge">Wasm Initializing…</span>
+        </div>
+      </header>
+      <div class="stage">
+        <canvas id="game" width="800" height="600" aria-label="Game canvas"></canvas>
+      </div>
+      <section id="tactical-panel" class="panel hidden" aria-label="Battle controls">
+        <div class="group">
+          <span class="label">Select</span>
+          <button id="sel-all" data-sel="all">All <kbd>1</kbd></button>
+          <button id="sel-knights" data-sel="knights">Knights <kbd>2</kbd></button>
+          <button id="sel-archers" data-sel="archers">Archers <kbd>3</kbd></button>
+          <button id="sel-barbarians" data-sel="barbarians">Barbarians <kbd>4</kbd></button>
+        </div>
+        <div class="group">
+          <span class="label">Orders</span>
+          <button id="cmd-advance" class="cmd advance">Advance <kbd>A</kbd></button>
+          <button id="cmd-hold" class="cmd hold">Hold <kbd>H</kbd></button>
+          <button id="cmd-retreat" class="cmd retreat">Retreat <kbd>R</kbd></button>
+        </div>
+      </section>
+      <section id="strategic-help" class="panel help" aria-label="Help">
+        <span><b>Left-click</b> a blue squad to select</span>
+        <span><b>Right-click</b> to march</span>
+        <span>Capture the <b class="red">red flag</b> (north) · Defend yours (south)</span>
+        <button id="restart">Restart</button>
+      </section>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
