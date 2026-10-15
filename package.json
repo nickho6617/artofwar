@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build:wasm": "cargo build -p artofwar-core --target wasm32-unknown-unknown --release --offline && mkdir -p public && cp target/wasm32-unknown-unknown/release/artofwar_core.wasm public/artofwar_core.wasm",
-    "build": "npm run build:wasm && tsc && vite build",
+    "build:web": "tsc && vite build",
+    "build": "npm run build:wasm && npm run build:web",
     "preview": "vite preview"
   },
   "devDependencies": {
