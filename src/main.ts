@@ -1,8 +1,9 @@
 import './style.css';
-import { UnitType, Stance, Squad, W, H, GameCommand, GameState } from './types';
-import { GameEngine, totalSquadUnits, dist, clamp } from './engine';
+import { UnitType, Stance, Squad, GameCommand, GameState } from './types';
+import { GameEngine, totalSquadUnits } from './engine';
 import { WasmGameEngine } from './wasmEngine';
 import { GameRenderer } from './renderer';
+import { domToCanvasCoords, getHitRadius, resolvePointerCommand } from './input';
 
 interface IGameEngine {
   getState(): Readonly<GameState>;
@@ -21,6 +22,10 @@ const statusTextEl = document.getElementById('status-text')!;
 const engineBadgeEl = document.getElementById('engine-badge')!;
 const tacPanel = document.getElementById('tactical-panel')!;
 const helpPanel = document.getElementById('strategic-help')!;
+const selectionIndicatorEl = document.getElementById('selection-indicator')!;
+const selectionTextEl = document.getElementById('selection-text')!;
+const helpInstructionsEl = document.getElementById('help-instructions')!;
+const btnDeselect = document.getElementById('btn-deselect')!;
 
 // ───────────────────────── Wasm Initialization ─────────────────────────
 async function bootstrapEngine() {
@@ -40,36 +45,36 @@ async function bootstrapEngine() {
 bootstrapEngine();
 
 // ───────────────────────── Input & Command Dispatch ─────────────────────────
-function toCanvas(e: MouseEvent): { x: number; y: number } {
-  const r = canvas.getBoundingClientRect();
-  return {
-    x: ((e.clientX - r.left) / r.width) * W,
-    y: ((e.clientY - r.top) / r.height) * H,
-  };
-}
-
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
-canvas.addEventListener('mousedown', (e) => {
+canvas.addEventListener('pointerdown', (e: PointerEvent) => {
   const state = activeEngine.getState();
-  if (state.mode === 'GAME_OVER') {
-    activeEngine.dispatch({ type: 'RESTART_GAME' });
-    return;
-  }
-  if (state.mode !== 'STRATEGIC') return;
+  const rect = canvas.getBoundingClientRect();
+  const pt = domToCanvasCoords(e.clientX, e.clientY, rect);
+  const isTouch = e.pointerType === 'touch' || e.pointerType === 'pen';
+  const radius = getHitRadius(rect.width, isTouch);
 
-  const pt = toCanvas(e);
-  if (e.button === 0) {
-    const hit = state.squads.find((s) => s.faction === 'PLAYER' && dist(s, pt) < 18);
-    activeEngine.dispatch({ type: 'SELECT_SQUAD', squadId: hit ? hit.id : null });
-  } else if (e.button === 2 && state.selectedId) {
-    activeEngine.dispatch({
-      type: 'MARCH_SQUAD',
-      squadId: state.selectedId,
-      targetX: clamp(pt.x, 0, W),
-      targetY: clamp(pt.y, 0, H),
-    });
+  const cmd = resolvePointerCommand(
+    {
+      x: pt.x,
+      y: pt.y,
+      button: e.button,
+      isTouch,
+      hitRadius: radius,
+    },
+    state
+  );
+
+  if (cmd) {
+    if (cmd.type === 'MARCH_SQUAD') {
+      renderer.addWaypointRipple(cmd.targetX, cmd.targetY);
+    }
+    activeEngine.dispatch(cmd);
   }
+});
+
+btnDeselect.addEventListener('click', () => {
+  activeEngine.dispatch({ type: 'SELECT_SQUAD', squadId: null });
 });
 
 function selectUnit(which: 'all' | UnitType) {
@@ -121,6 +126,16 @@ function updateHud() {
       ? `Game over — ${state.winner === 'PLAYER' ? 'Victory' : 'Defeat'}`
       : `Blue: ${pl.length} squads / ${sumAll(pl)} men   ·   Red: ${ai.length} squads / ${sumAll(ai)} men`;
 
+  const hasSelection = state.mode === 'STRATEGIC' && !!state.selectedId;
+  selectionIndicatorEl.classList.toggle('hidden', !hasSelection);
+  helpInstructionsEl.classList.toggle('hidden', hasSelection);
+
+  if (hasSelection) {
+    const sq = state.squads.find((s) => s.id === state.selectedId);
+    const men = sq ? totalSquadUnits(sq) : 0;
+    selectionTextEl.textContent = `Squad ${state.selectedId} (${men} men) selected · Tap map to march`;
+  }
+
   if (tac && state.activeBattle) {
     const sel = state.activeBattle.selected;
     const isSelected = (unit: string): boolean => {
@@ -146,7 +161,7 @@ function frame(now: number) {
   last = now;
 
   activeEngine.tick(dt);
-  renderer.render(ctx, activeEngine.getState());
+  renderer.render(ctx, activeEngine.getState(), dt);
   updateHud();
 
   requestAnimationFrame(frame);

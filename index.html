@@ -36,8 +36,11 @@
         </div>
       </section>
       <section id="strategic-help" class="panel help" aria-label="Help">
-        <span><b>Left-click</b> a blue squad to select</span>
-        <span><b>Right-click</b> to march</span>
+        <span id="help-instructions"><b>Tap / Click</b> squad to select · <b>Tap map / Right-click</b> to march</span>
+        <div id="selection-indicator" class="selection-indicator hidden">
+          <span id="selection-text">Squad selected · Tap map to march</span>
+          <button id="btn-deselect" class="btn-subtle" type="button">Deselect</button>
+        </div>
         <span>Capture the <b class="red">red flag</b> (north) · Defend yours (south)</span>
         <button id="restart">Restart</button>
       </section>

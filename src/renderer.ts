@@ -20,11 +20,24 @@ import {
   cohortRadius,
 } from './engine';
 
+interface WaypointRipple {
+  x: number;
+  y: number;
+  age: number;
+  maxAge: number;
+}
+
 export class GameRenderer {
-  public render(ctx: CanvasRenderingContext2D, state: Readonly<GameState>): void {
+  private ripples: WaypointRipple[] = [];
+
+  public addWaypointRipple(x: number, y: number): void {
+    this.ripples.push({ x, y, age: 0, maxAge: 0.5 });
+  }
+
+  public render(ctx: CanvasRenderingContext2D, state: Readonly<GameState>, dt: number = 0.016): void {
     ctx.clearRect(0, 0, W, H);
     if (state.mode === 'STRATEGIC') {
-      this.drawStrategic(ctx, state);
+      this.drawStrategic(ctx, state, dt);
     } else if (state.mode === 'TACTICAL') {
       this.drawTactical(ctx, state);
     } else {
@@ -32,7 +45,7 @@ export class GameRenderer {
     }
   }
 
-  private drawStrategic(ctx: CanvasRenderingContext2D, state: Readonly<GameState>): void {
+  private drawStrategic(ctx: CanvasRenderingContext2D, state: Readonly<GameState>, dt: number = 0.016): void {
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
         const t = state.grid[r][c];
@@ -96,6 +109,17 @@ export class GameRenderer {
         ctx.lineTo(s.targetX, s.targetY);
         ctx.stroke();
         ctx.setLineDash([]);
+
+        // Waypoint destination marker
+        ctx.fillStyle = '#ffd860';
+        ctx.beginPath();
+        ctx.arc(s.targetX, s.targetY, 3, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = 'rgba(255, 216, 96, 0.6)';
+        ctx.beginPath();
+        ctx.arc(s.targetX, s.targetY, 7, 0, Math.PI * 2);
+        ctx.stroke();
       }
 
       if (sel) {
@@ -128,6 +152,25 @@ export class GameRenderer {
       ctx.fillStyle =
         s.condition > 60 ? '#6fe06f' : s.condition > 30 ? '#e8c53a' : '#e0503a';
       ctx.fillRect(s.x - 16, s.y + 19, 32 * (s.condition / 100), 5);
+    }
+
+    // Draw & advance animated waypoint ripples
+    for (let i = this.ripples.length - 1; i >= 0; i--) {
+      const r = this.ripples[i];
+      r.age += dt;
+      if (r.age >= r.maxAge) {
+        this.ripples.splice(i, 1);
+        continue;
+      }
+      const progress = r.age / r.maxAge;
+      const radius = 6 + progress * 24;
+      const alpha = (1 - progress) * 0.85;
+      ctx.strokeStyle = `rgba(255, 216, 96, ${alpha})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(r.x, r.y, radius, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.lineWidth = 1;
     }
   }
 
