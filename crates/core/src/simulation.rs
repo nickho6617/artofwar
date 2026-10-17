@@ -37,6 +37,8 @@ pub fn make_squad(id: &str, faction: Faction, x: f32, y: f32) -> Squad {
         knights: 15,
         archers: 15,
         barbarians: 15,
+        veteran: false,
+        merge_target_id: None,
     }
 }
 
@@ -102,8 +104,17 @@ impl CoreGameEngine {
                         if s.faction == Faction::Player {
                             s.target_x = clamp(target_x, 0.0, W);
                             s.target_y = clamp(target_y, 0.0, H);
+                            s.merge_target_id = None;
                         }
                     }
+                }
+            }
+            GameCommand::CombineSquads {
+                source_id,
+                target_id,
+            } => {
+                if self.state.mode == GameMode::Strategic {
+                    self.combine_squads(&source_id, &target_id);
                 }
             }
             GameCommand::SelectTactical { unit_type } => {
@@ -169,7 +180,103 @@ impl CoreGameEngine {
         }
     }
 
+    pub fn combine_squads(&mut self, source_id: &str, target_id: &str) -> bool {
+        if source_id == target_id {
+            return false;
+        }
+
+        let s1_idx = self.state.squads.iter().position(|s| s.id == source_id);
+        let s2_idx = self.state.squads.iter().position(|s| s.id == target_id);
+
+        let (idx1, idx2) = match (s1_idx, s2_idx) {
+            (Some(i1), Some(i2)) => (i1, i2),
+            _ => return false,
+        };
+
+        if self.state.squads[idx1].faction != self.state.squads[idx2].faction {
+            return false;
+        }
+
+        let n1 = self.state.squads[idx1].total() as f32;
+        let n2 = self.state.squads[idx2].total() as f32;
+        if n1 == 0.0 || n2 == 0.0 {
+            return false;
+        }
+
+        let k1 = self.state.squads[idx1].knights;
+        let a1 = self.state.squads[idx1].archers;
+        let b1 = self.state.squads[idx1].barbarians;
+        let c1 = self.state.squads[idx1].condition;
+
+        let s2 = &mut self.state.squads[idx2];
+        s2.knights = (s2.knights + k1).min(25);
+        s2.archers = (s2.archers + a1).min(25);
+        s2.barbarians = (s2.barbarians + b1).min(25);
+
+        let weighted_cond = (c1 * n1 + s2.condition * n2) / (n1 + n2);
+        s2.condition = (weighted_cond + 15.0).round().min(100.0);
+        s2.veteran = true;
+        s2.merge_target_id = None;
+
+        self.state.squads.retain(|s| s.id != source_id);
+        if self.state.selected_id.as_deref() == Some(source_id) {
+            self.state.selected_id = Some(target_id.to_string());
+        }
+
+        true
+    }
+
     fn update_strategic(&mut self, dt: f32) {
+        // Rendezvous tracking and auto-merge
+        let mut merges_to_run = Vec::new();
+        for i in 0..self.state.squads.len() {
+            let s = &self.state.squads[i];
+            if let Some(ref target_id) = s.merge_target_id {
+                if let Some(tgt) = self.state.squads.iter().find(|t| t.id == *target_id) {
+                    if tgt.faction == s.faction {
+                        let target_pos = (tgt.x, tgt.y);
+                        let s_pos = (s.x, s.y);
+                        let d = dist(s_pos.0, s_pos.1, target_pos.0, target_pos.1);
+                        if d <= 25.0 {
+                            merges_to_run.push((s.id.clone(), tgt.id.clone()));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Apply target position updates for squads pursuing a merge target
+        for s in self.state.squads.iter_mut() {
+            if let Some(ref target_id) = s.merge_target_id {
+                let tid = target_id.clone();
+                // We'll update coordinates below if target still exists
+                s.merge_target_id = Some(tid);
+            }
+        }
+
+        for (src, tgt) in merges_to_run {
+            self.combine_squads(&src, &tgt);
+        }
+
+        // Update targetX/targetY towards moving merge targets
+        let positions: Vec<(String, f32, f32)> = self
+            .state
+            .squads
+            .iter()
+            .map(|s| (s.id.clone(), s.x, s.y))
+            .collect();
+
+        for s in self.state.squads.iter_mut() {
+            if let Some(ref target_id) = s.merge_target_id {
+                if let Some((_, tx, ty)) = positions.iter().find(|(id, _, _)| id == target_id) {
+                    s.target_x = *tx;
+                    s.target_y = *ty;
+                } else {
+                    s.merge_target_id = None;
+                }
+            }
+        }
+
         for s in self.state.squads.iter_mut() {
             let dx = s.target_x - s.x;
             let dy = s.target_y - s.y;
@@ -286,12 +393,44 @@ impl CoreGameEngine {
         let flag_pos = self.state.flag_position.clone();
         let player_flag = self.state.player_flag.clone();
 
+        let mut busy_ids = Vec::new();
+
         // Find threats near AI flag
         let threat = self.state.squads.iter().find(|s| {
             s.faction == Faction::Player && dist(s.x, s.y, flag_pos.x, flag_pos.y) < 150.0
         }).map(|s| Point { x: s.x, y: s.y });
 
-        let mut busy_ids = Vec::new();
+        // 0. Regroup decimated AI squads (< 12 men) with nearest friendly AI squad with capacity (< 45 men)
+        let depleted_ai: Vec<(String, f32, f32)> = self
+            .state
+            .squads
+            .iter()
+            .filter(|s| s.faction == Faction::Ai && s.total() < 12)
+            .map(|s| (s.id.clone(), s.x, s.y))
+            .collect();
+
+        for (dep_id, dep_x, dep_y) in depleted_ai {
+            let allies: Vec<(String, f32, f32)> = self
+                .state
+                .squads
+                .iter()
+                .filter(|s| s.faction == Faction::Ai && s.id != dep_id && s.total() < 45)
+                .map(|s| (s.id.clone(), s.x, s.y))
+                .collect();
+
+            if let Some((best_ally_id, ally_x, ally_y)) = allies.iter().min_by(|a, b| {
+                dist(dep_x, dep_y, a.1, a.2)
+                    .partial_cmp(&dist(dep_x, dep_y, b.1, b.2))
+                    .unwrap()
+            }) {
+                if let Some(s) = self.state.squads.iter_mut().find(|s| s.id == dep_id) {
+                    s.merge_target_id = Some(best_ally_id.clone());
+                    s.target_x = *ally_x;
+                    s.target_y = *ally_y;
+                }
+                busy_ids.push(dep_id);
+            }
+        }
 
         if let Some(th) = threat {
             // Find closest AI defender
@@ -393,6 +532,9 @@ impl CoreGameEngine {
         let p_mountain = self.terrain_at(p.x, p.y) == TerrainType::Mountain;
         let a_mountain = self.terrain_at(a.x, a.y) == TerrainType::Mountain;
 
+        let p_veteran = p.veteran;
+        let a_veteran = a.veteran;
+
         self.state.active_battle = Some(Battle {
             attacker_id: p.id.clone(),
             defender_id: a.id.clone(),
@@ -403,6 +545,8 @@ impl CoreGameEngine {
             ai_mountain: a_mountain,
             player_cond: p.condition,
             ai_cond: a.condition,
+            player_veteran: p_veteran,
+            ai_veteran: a_veteran,
             selected: UnitType::ALL.to_vec(),
             ai_timer: 0.0,
         });
@@ -565,9 +709,16 @@ impl CoreGameEngine {
         } else {
             1.0
         };
+        let vet_bonus = if (att_faction == Faction::Player && b.player_veteran)
+            || (att_faction == Faction::Ai && b.ai_veteran)
+        {
+            1.10
+        } else {
+            1.0
+        };
 
         let mult = att_type.multiplier(def_type);
-        b.cohorts[def_idx].hp -= (base * mult * cond_mult) / def_bonus;
+        b.cohorts[def_idx].hp -= (base * mult * cond_mult * vet_bonus) / def_bonus;
     }
 
     fn ai_tactical(b: &mut Battle) {

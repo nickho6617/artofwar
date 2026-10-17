@@ -120,4 +120,36 @@ mod tests {
         assert_eq!(engine.state.mode, GameMode::GameOver);
         assert_eq!(engine.state.winner, Some(Faction::Player));
     }
+
+    #[test]
+    fn test_combine_squads() {
+        let mut engine = CoreGameEngine::new();
+        // Setup P0 with 5 knights, 2 archers, 3 barbarians (10 total), condition 50
+        if let Some(p0) = engine.state.squads.iter_mut().find(|s| s.id == "P0") {
+            p0.knights = 5;
+            p0.archers = 2;
+            p0.barbarians = 3;
+            p0.condition = 50.0;
+        }
+        // Setup P1 with 10 knights, 5 archers, 5 barbarians (20 total), condition 70
+        if let Some(p1) = engine.state.squads.iter_mut().find(|s| s.id == "P1") {
+            p1.knights = 10;
+            p1.archers = 5;
+            p1.barbarians = 5;
+            p1.condition = 70.0;
+        }
+
+        let ok = engine.combine_squads("P0", "P1");
+        assert!(ok);
+        assert!(!engine.state.squads.iter().any(|s| s.id == "P0"));
+
+        let p1 = engine.state.squads.iter().find(|s| s.id == "P1").unwrap();
+        assert_eq!(p1.knights, 15);
+        assert_eq!(p1.archers, 7);
+        assert_eq!(p1.barbarians, 8);
+        assert_eq!(p1.total(), 30);
+        assert!(p1.veteran);
+        // Weighted average: (50*10 + 70*20) / 30 = (500 + 1400)/30 = 63.33 + 15 = 78.33 -> round 78.0
+        assert_eq!(p1.condition, 78.0);
+    }
 }

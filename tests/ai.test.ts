@@ -68,6 +68,35 @@ describe('Autonomous AI Heuristics ("Sun Tzu Lite")', () => {
       expect(aiSquad.targetX).toBe(playerSquad.x);
       expect(aiSquad.targetY).toBe(playerSquad.y);
     });
+
+    it('orders decimated AI squad (<12 men) to regroup with nearest friendly AI squad with capacity', () => {
+      const state: GameState = createInitialState();
+      // Depleted AI squad
+      const depletedAi = makeSquad('A0', 'AI', 150, 150);
+      depletedAi.knights = 2;
+      depletedAi.archers = 1;
+      depletedAi.barbarians = 1; // 4 men total (< 12)
+
+      // Friendly ally squad with capacity
+      const allyAi = makeSquad('A1', 'AI', 250, 150);
+      allyAi.knights = 10;
+      allyAi.archers = 10;
+      allyAi.barbarians = 10; // 30 men (< 45)
+
+      // Player squad far away
+      const farPlayer = makeSquad('P0', 'PLAYER', 700, 500);
+
+      state.squads = [depletedAi, allyAi, farPlayer];
+      state.aiTimer = 0;
+
+      const engine = new GameEngine(state);
+      engine.tick(0.1);
+
+      const a0 = engine.getState().squads.find((s) => s.id === 'A0')!;
+      expect(a0.mergeTargetId).toBe('A1');
+      expect(a0.targetX).toBe(allyAi.x);
+      expect(a0.targetY).toBe(allyAi.y);
+    });
   });
 
   describe('Tactical AI', () => {

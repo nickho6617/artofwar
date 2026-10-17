@@ -147,6 +147,10 @@ pub struct Squad {
     pub knights: u32,
     pub archers: u32,
     pub barbarians: u32,
+    #[serde(default)]
+    pub veteran: bool,
+    #[serde(rename = "mergeTargetId", default, skip_serializing_if = "Option::is_none")]
+    pub merge_target_id: Option<String>,
 }
 
 impl Squad {
@@ -212,6 +216,10 @@ pub struct Battle {
     pub player_cond: f32,
     #[serde(rename = "aiCond")]
     pub ai_cond: f32,
+    #[serde(rename = "playerVeteran", default)]
+    pub player_veteran: bool,
+    #[serde(rename = "aiVeteran", default)]
+    pub ai_veteran: bool,
     pub selected: Vec<UnitType>,
     #[serde(rename = "aiTimer")]
     pub ai_timer: f32,
@@ -257,6 +265,13 @@ pub enum GameCommand {
         target_x: f32,
         #[serde(rename = "targetY")]
         target_y: f32,
+    },
+    #[serde(rename = "COMBINE_SQUADS")]
+    CombineSquads {
+        #[serde(rename = "sourceId")]
+        source_id: String,
+        #[serde(rename = "targetId")]
+        target_id: String,
     },
     #[serde(rename = "SELECT_TACTICAL")]
     SelectTactical {

@@ -14,6 +14,7 @@ Built without external game engines, this prototype proves out the classic dual-
 * **16×12 Topographic Grid:** Navigate across four terrain types that dynamically influence march speed, fatigue drain, mountain defense, and ambush opportunities.
 * **Condition (Fatigue) System:** Marching exhausts squads (`0–100%`). Fatigued squads march slower and deal down to **50% less damage** in battle. Stationing idle squads inside a **Fort** rapidly restores Condition.
 * **Shatter Remnants:** When a large squad ($\ge 10$ men) intercepts a broken remnant force ($\le 4$ men), the remnant is instantly overrun and captured on the strategic map. This bypasses tedious 1-second skirmishes against isolated survivors.
+* **Squad Consolidation & Veteran Reinforcement:** Decimated and depleted squads can rendezvous and merge. Consolidated squads pool troops (up to 25 per cohort), inherit weighted Condition plus a **+15% Morale Recovery boost**, and earn **Veteran Squad** status (⭐ **+10% Combat Damage multiplier**).
 * **Win Conditions:** Capture the enemy command flag or eliminate all opposing squads while protecting your own home flag.
 
 | Terrain | March Speed | March Drain | Idle Recovery | Tactical & Strategic Traits |

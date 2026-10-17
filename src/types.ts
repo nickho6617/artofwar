@@ -16,6 +16,8 @@ export interface Squad {
   knights: number;
   archers: number;
   barbarians: number;
+  veteran?: boolean;
+  mergeTargetId?: string | null;
 }
 
 export interface TacticalCohort {
@@ -47,6 +49,8 @@ export interface Battle {
   aiMountain: boolean;
   playerCond: number;
   aiCond: number;
+  playerVeteran?: boolean;
+  aiVeteran?: boolean;
   selected: Set<UnitType> | UnitType[];
   aiTimer: number;
   isAmbush?: boolean;
@@ -72,6 +76,7 @@ export interface GameState {
 export type GameCommand =
   | { type: 'SELECT_SQUAD'; squadId: string | null }
   | { type: 'MARCH_SQUAD'; squadId: string; targetX: number; targetY: number }
+  | { type: 'COMBINE_SQUADS'; sourceId: string; targetId: string }
   | { type: 'SELECT_TACTICAL'; unitType: 'all' | UnitType }
   | { type: 'SET_TACTICAL_STANCE'; stance: Stance }
   | { type: 'RESTART_GAME' };

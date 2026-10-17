@@ -7,6 +7,7 @@ export interface PointerInput {
   button: number;
   isTouch?: boolean;
   hitRadius?: number;
+  targetMergeMode?: boolean;
 }
 
 export const DEFAULT_MOUSE_HIT_RADIUS = 18;
@@ -62,7 +63,7 @@ export function resolvePointerCommand(
     return null;
   }
 
-  const { x, y, button } = input;
+  const { x, y, button, targetMergeMode } = input;
   const radius = input.hitRadius ?? (input.isTouch ? 36 : DEFAULT_MOUSE_HIT_RADIUS);
 
   // Desktop right-click: march currently selected squad immediately
@@ -84,6 +85,18 @@ export function resolvePointerCommand(
     const hitSquad = state.squads.find(
       (s: Squad) => s.faction === 'PLAYER' && dist(s, pt) < radius
     );
+
+    // If targetMergeMode is active and a selected squad clicks another friendly squad
+    if (targetMergeMode && state.selectedId && hitSquad && hitSquad.id !== state.selectedId) {
+      // If adjacent within 35px, immediate combine; otherwise march towards ally
+      if (dist(hitSquad, pt) < 35) {
+        return {
+          type: 'COMBINE_SQUADS',
+          sourceId: state.selectedId,
+          targetId: hitSquad.id,
+        };
+      }
+    }
 
     // If no squad is currently selected
     if (!state.selectedId) {

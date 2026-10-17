@@ -25,7 +25,11 @@ const helpPanel = document.getElementById('strategic-help')!;
 const selectionIndicatorEl = document.getElementById('selection-indicator')!;
 const selectionTextEl = document.getElementById('selection-text')!;
 const helpInstructionsEl = document.getElementById('help-instructions')!;
+const btnCombine = document.getElementById('btn-combine') as HTMLButtonElement;
+const btnRendezvous = document.getElementById('btn-rendezvous') as HTMLButtonElement;
 const btnDeselect = document.getElementById('btn-deselect')!;
+
+let rendezvousMode = false;
 
 // ───────────────────────── Wasm Initialization ─────────────────────────
 async function bootstrapEngine() {
@@ -54,6 +58,28 @@ canvas.addEventListener('pointerdown', (e: PointerEvent) => {
   const isTouch = e.pointerType === 'touch' || e.pointerType === 'pen';
   const radius = getHitRadius(rect.width, isTouch);
 
+  // If rendezvous mode is active and player taps another friendly squad
+  if (rendezvousMode && state.selectedId && e.button === 0) {
+    const hitSquad = state.squads.find(
+      (s: Squad) => s.faction === 'PLAYER' && s.id !== state.selectedId && Math.hypot(s.x - pt.x, s.y - pt.y) < radius
+    );
+    if (hitSquad) {
+      const cur = state.squads.find((s) => s.id === state.selectedId);
+      if (cur) {
+        cur.mergeTargetId = hitSquad.id;
+        activeEngine.dispatch({
+          type: 'MARCH_SQUAD',
+          squadId: cur.id,
+          targetX: hitSquad.x,
+          targetY: hitSquad.y,
+        });
+      }
+      rendezvousMode = false;
+      btnRendezvous.classList.remove('active');
+      return;
+    }
+  }
+
   const cmd = resolvePointerCommand(
     {
       x: pt.x,
@@ -61,6 +87,7 @@ canvas.addEventListener('pointerdown', (e: PointerEvent) => {
       button: e.button,
       isTouch,
       hitRadius: radius,
+      targetMergeMode: rendezvousMode,
     },
     state
   );
@@ -68,13 +95,44 @@ canvas.addEventListener('pointerdown', (e: PointerEvent) => {
   if (cmd) {
     if (cmd.type === 'MARCH_SQUAD') {
       renderer.addWaypointRipple(cmd.targetX, cmd.targetY);
+      rendezvousMode = false;
+      btnRendezvous.classList.remove('active');
     }
     activeEngine.dispatch(cmd);
   }
 });
 
 btnDeselect.addEventListener('click', () => {
+  rendezvousMode = false;
+  btnRendezvous.classList.remove('active');
   activeEngine.dispatch({ type: 'SELECT_SQUAD', squadId: null });
+});
+
+btnRendezvous.addEventListener('click', () => {
+  rendezvousMode = !rendezvousMode;
+  btnRendezvous.classList.toggle('active', rendezvousMode);
+  if (rendezvousMode) {
+    selectionTextEl.textContent = 'Tap ally squad to rendezvous & merge';
+  }
+});
+
+btnCombine.addEventListener('click', () => {
+  const state = activeEngine.getState();
+  if (!state.selectedId) return;
+  const cur = state.squads.find((s) => s.id === state.selectedId);
+  if (!cur) return;
+
+  const nearbyAlly = state.squads.find(
+    (s) => s.faction === 'PLAYER' && s.id !== cur.id && Math.hypot(s.x - cur.x, s.y - cur.y) <= 35
+  );
+
+  if (nearbyAlly) {
+    activeEngine.dispatch({
+      type: 'COMBINE_SQUADS',
+      sourceId: cur.id,
+      targetId: nearbyAlly.id,
+    });
+  }
 });
 
 function selectUnit(which: 'all' | UnitType) {
@@ -151,7 +209,31 @@ function updateHud() {
   if (hasSelection) {
     const sq = state.squads.find((s) => s.id === state.selectedId);
     const men = sq ? totalSquadUnits(sq) : 0;
-    selectionTextEl.textContent = `Squad ${state.selectedId} (${men} men) selected · Tap map to march`;
+    const vetBadge = sq?.veteran ? ' ⭐ VETERAN' : '';
+
+    // Check if an ally is close enough to combine immediately (<= 35px)
+    const nearbyAlly = sq
+      ? state.squads.find(
+          (s) => s.faction === 'PLAYER' && s.id !== sq.id && Math.hypot(s.x - sq.x, s.y - sq.y) <= 35
+        )
+      : null;
+
+    if (nearbyAlly) {
+      btnCombine.classList.remove('hidden');
+      btnCombine.textContent = `⚔️ Combine with ${nearbyAlly.id} (${totalSquadUnits(nearbyAlly)} men) ⭐`;
+    } else {
+      btnCombine.classList.add('hidden');
+    }
+
+    if (rendezvousMode) {
+      selectionTextEl.textContent = `Squad ${state.selectedId}${vetBadge}: Tap ally squad to rendezvous & merge`;
+    } else if (nearbyAlly) {
+      selectionTextEl.textContent = `Squad ${state.selectedId}${vetBadge} adjacent to ${nearbyAlly.id} · Tap Combine or map to march`;
+    } else {
+      selectionTextEl.textContent = `Squad ${state.selectedId}${vetBadge} (${men} men) selected · Tap map to march`;
+    }
+  } else {
+    btnCombine.classList.add('hidden');
   }
 
   if (tac && state.activeBattle) {

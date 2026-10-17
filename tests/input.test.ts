@@ -150,6 +150,25 @@ describe('Input Resolver: resolvePointerCommand', () => {
     );
     expect(cmd).toBeNull();
   });
+
+  it('emits COMBINE_SQUADS when targetMergeMode is active and tapping adjacent friendly squad', () => {
+    // P0 selected at (175, 510), P1 adjacent at (195, 510) (distance 20 <= 35)
+    const adjacentP1 = createDummySquad('P1', 'PLAYER', 195, 510);
+    const selectedState: Pick<GameState, 'mode' | 'selectedId' | 'squads'> = {
+      mode: 'STRATEGIC',
+      selectedId: 'P0',
+      squads: [playerSquad1, adjacentP1],
+    };
+    const cmd = resolvePointerCommand(
+      { x: 195, y: 510, button: 0, targetMergeMode: true },
+      selectedState
+    );
+    expect(cmd).toEqual({
+      type: 'COMBINE_SQUADS',
+      sourceId: 'P0',
+      targetId: 'P1',
+    });
+  });
 });
 
 describe('Adaptive Hit Radius: getHitRadius', () => {

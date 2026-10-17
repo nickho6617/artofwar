@@ -47,6 +47,8 @@ export function makeSquad(id: string, faction: Faction, x: number, y: number): S
     knights: 15,
     archers: 15,
     barbarians: 15,
+    veteran: false,
+    mergeTargetId: null,
   };
 }
 
@@ -93,7 +95,14 @@ export class GameEngine {
           if (squad && squad.faction === 'PLAYER') {
             squad.targetX = clamp(command.targetX, 0, W);
             squad.targetY = clamp(command.targetY, 0, H);
+            squad.mergeTargetId = null;
           }
+        }
+        break;
+      }
+      case 'COMBINE_SQUADS': {
+        if (this.state.mode === 'STRATEGIC') {
+          this.combineSquads(command.sourceId, command.targetId);
         }
         break;
       }
@@ -169,8 +178,67 @@ export class GameEngine {
     return out;
   }
 
+  public combineSquads(sourceId: string, targetId: string): boolean {
+    if (sourceId === targetId) return false;
+    const s1 = this.getSquadById(sourceId);
+    const s2 = this.getSquadById(targetId);
+    if (!s1 || !s2) return false;
+    if (s1.faction !== s2.faction) return false;
+
+    const n1 = totalSquadUnits(s1);
+    const n2 = totalSquadUnits(s2);
+    if (n1 === 0 || n2 === 0) return false;
+
+    // Pool units per type up to standard limit (max 25 each, or up to 50 total)
+    const newKnights = Math.min(25, s1.knights + s2.knights);
+    const newArchers = Math.min(25, s1.archers + s2.archers);
+    const newBarbarians = Math.min(25, s1.barbarians + s2.barbarians);
+
+    // Troop-weighted average condition + 15% Morale Consolidation bonus
+    const weightedCond = (s1.condition * n1 + s2.condition * n2) / (n1 + n2);
+    const newCondition = Math.min(100, Math.round(weightedCond + 15));
+
+    // Target squad inherits the reinforced army and becomes a Veteran squad
+    s2.knights = newKnights;
+    s2.archers = newArchers;
+    s2.barbarians = newBarbarians;
+    s2.condition = newCondition;
+    s2.veteran = true;
+    s2.mergeTargetId = null;
+
+    // Source squad is removed
+    this.state.squads = this.state.squads.filter((s) => s.id !== sourceId);
+    if (this.state.selectedId === sourceId) {
+      this.state.selectedId = targetId;
+    }
+
+    this.state.shatterMessage = {
+      text: `${s2.faction === 'PLAYER' ? 'Player' : 'Enemy'} squads combined into Veteran Force (${totalSquadUnits(s2)} men, +10% DMG)!`,
+      time: 3,
+    };
+
+    return true;
+  }
+
   // ───────────────────────── Strategic Update ─────────────────────────
   private updateStrategic(dt: number): void {
+    // Check squads moving toward rendezvous merge targets
+    for (const s of this.state.squads) {
+      if (s.mergeTargetId) {
+        const tgt = this.getSquadById(s.mergeTargetId);
+        if (!tgt || tgt.faction !== s.faction) {
+          s.mergeTargetId = null;
+        } else {
+          // Track target position as it moves
+          s.targetX = tgt.x;
+          s.targetY = tgt.y;
+          if (dist(s, tgt) <= 25) {
+            this.combineSquads(s.id, tgt.id);
+          }
+        }
+      }
+    }
+
     for (const s of this.state.squads) {
       const dx = s.targetX - s.x;
       const dy = s.targetY - s.y;
@@ -278,6 +346,19 @@ export class GameEngine {
       list.reduce((b, c) => (dist(from, c) < dist(from, b) ? c : b));
     const busy = new Set<string>();
 
+    // 0. Regroup decimated AI squads (< 12 men) with nearest friendly AI squad
+    const depletedAI = ai.filter((s) => totalSquadUnits(s) < 12);
+    for (const dep of depletedAI) {
+      if (busy.has(dep.id)) continue;
+      const allies = ai.filter((s) => s.id !== dep.id && totalSquadUnits(s) < 45);
+      if (allies.length > 0) {
+        const ally = nearest(dep, allies);
+        dep.mergeTargetId = ally.id;
+        order(dep, ally);
+        busy.add(dep.id);
+      }
+    }
+
     // 1. Defend flag
     const threat = pl.find((p) => dist(p, this.state.flagPosition) < 150);
     if (threat) {
@@ -381,6 +462,8 @@ export class GameEngine {
       aiMountain: this.terrainAt(a.x, a.y) === 'MOUNTAIN',
       playerCond: p.condition,
       aiCond: a.condition,
+      playerVeteran: !!p.veteran,
+      aiVeteran: !!a.veteran,
       selected: new Set(TYPES),
       aiTimer: 0,
       isAmbush,
@@ -396,7 +479,8 @@ export class GameEngine {
     const cond = att.faction === 'PLAYER' ? b.playerCond : b.aiCond;
     const condMult = 0.5 + cond / 200;
     const defBonus = (def.faction === 'PLAYER' ? b.playerMountain : b.aiMountain) ? 1.25 : 1;
-    def.hp -= (base * MULT[att.type][def.type] * condMult) / defBonus;
+    const vetBonus = (att.faction === 'PLAYER' ? b.playerVeteran : b.aiVeteran) ? 1.10 : 1.0;
+    def.hp -= (base * MULT[att.type][def.type] * condMult * vetBonus) / defBonus;
   }
 
   private aiTactical(b: Battle): void {

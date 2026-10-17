@@ -99,15 +99,18 @@ export class GameRenderer {
     for (const s of state.squads) {
       const sel = s.id === state.selectedId;
       const col = s.faction === 'PLAYER' ? '#3b8be0' : '#e0443a';
+      const isRendezvous = !!s.mergeTargetId;
 
       if (s.faction === 'PLAYER' && dist(s, { x: s.targetX, y: s.targetY }) > 2) {
-        ctx.setLineDash([5, 5]);
-        ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+        ctx.setLineDash(isRendezvous ? [3, 3] : [5, 5]);
+        ctx.strokeStyle = isRendezvous ? 'rgba(255, 216, 96, 0.85)' : 'rgba(255,255,255,0.6)';
+        ctx.lineWidth = isRendezvous ? 2 : 1;
         ctx.beginPath();
         ctx.moveTo(s.x, s.y);
         ctx.lineTo(s.targetX, s.targetY);
         ctx.stroke();
         ctx.setLineDash([]);
+        ctx.lineWidth = 1;
 
         // Waypoint destination marker
         ctx.fillStyle = '#ffd860';
@@ -130,6 +133,16 @@ export class GameRenderer {
         ctx.lineWidth = 1;
       }
 
+      // Golden halo for Veteran squads
+      if (s.veteran) {
+        ctx.strokeStyle = '#ffd860';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, 18, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.lineWidth = 1;
+      }
+
       ctx.shadowColor = 'rgba(0,0,0,0.5)';
       ctx.shadowBlur = 6;
       ctx.fillStyle = col;
@@ -137,14 +150,22 @@ export class GameRenderer {
       ctx.arc(s.x, s.y, 15, 0, Math.PI * 2);
       ctx.fill();
       ctx.shadowBlur = 0;
-      ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+      ctx.strokeStyle = s.veteran ? '#ffd860' : 'rgba(255,255,255,0.8)';
+      ctx.lineWidth = s.veteran ? 2 : 1;
       ctx.stroke();
+      ctx.lineWidth = 1;
 
       ctx.fillStyle = '#fff';
       ctx.font = 'bold 12px Inter';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(String(totalSquadUnits(s)), s.x, s.y + 1);
+
+      // Veteran star icon above squad
+      if (s.veteran) {
+        ctx.font = '11px sans-serif';
+        ctx.fillText('⭐', s.x, s.y - 18);
+      }
 
       ctx.fillStyle = 'rgba(0,0,0,0.6)';
       ctx.fillRect(s.x - 16, s.y + 19, 32, 5);
@@ -257,10 +278,12 @@ export class GameRenderer {
     ctx.font = 'bold 16px Inter';
     ctx.textAlign = 'left';
     ctx.fillStyle = '#5ea6ff';
-    ctx.fillText(`BLUE ${sum('PLAYER')}  ·  cond ${Math.round(p.condition)}`, 20, 34);
+    const playerVetLabel = b.playerVeteran ? ' ⭐ VETERAN' : '';
+    ctx.fillText(`BLUE ${sum('PLAYER')}  ·  cond ${Math.round(p.condition)}${playerVetLabel}`, 20, 34);
     ctx.textAlign = 'right';
     ctx.fillStyle = '#ff6a5e';
-    ctx.fillText(`cond ${Math.round(a.condition)}  ·  ${sum('AI')} RED`, W - 20, 34);
+    const aiVetLabel = b.aiVeteran ? '⭐ VETERAN · ' : '';
+    ctx.fillText(`${aiVetLabel}cond ${Math.round(a.condition)}  ·  ${sum('AI')} RED`, W - 20, 34);
 
     // Tactical arena floor
     ctx.save();
