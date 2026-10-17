@@ -76,7 +76,6 @@ export class GameRenderer {
           ctx.lineTo(x + 22, y + 10);
           ctx.lineTo(x + 40, y + 44);
           ctx.fill();
-
           ctx.fillStyle = '#e8eaec';
           ctx.beginPath();
           ctx.moveTo(x + 16, y + 22);
@@ -154,6 +153,24 @@ export class GameRenderer {
       ctx.fillRect(s.x - 16, s.y + 19, 32 * (s.condition / 100), 5);
     }
 
+    // Floating shatter / capture message
+    if (state.shatterMessage && state.shatterMessage.time > 0) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(20, 15, 10, 0.9)';
+      ctx.strokeStyle = '#e8c56a';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.roundRect(W / 2 - 200, 16, 400, 34, 8);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#ffd860';
+      ctx.font = 'bold 13px Inter';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`⚡ ${state.shatterMessage.text}`, W / 2, 33);
+      ctx.restore();
+    }
+
     // Draw & advance animated waypoint ripples
     for (let i = this.ripples.length - 1; i >= 0; i--) {
       const r = this.ripples[i];
@@ -221,7 +238,19 @@ export class GameRenderer {
       : b.aiMountain
       ? ' · Enemy holds the high ground'
       : '';
-    ctx.fillText(`Terrain: ${b.terrain}${bonus}`, W / 2, 62);
+
+    let statusDetail = `Terrain: ${b.terrain}${bonus}`;
+    if (b.retreatBlocked) {
+      statusDetail += ` · ⚔️ PINCER: ${b.retreatBlocked === 'AI' ? 'Enemy' : 'Player'} retreat is BLOCKED!`;
+    } else if (b.isAmbush) {
+      const timeLeft = Math.max(0, Math.ceil(6.0 - (b.elapsedTime || 0)));
+      if (timeLeft > 0) {
+        statusDetail += ` · ⚡ AMBUSH: ${b.ambushFaction === 'PLAYER' ? 'Enemy' : 'Player'} retreat locked (${timeLeft}s)`;
+      } else {
+        statusDetail += ` · ⚡ AMBUSH: Ambush shock has passed`;
+      }
+    }
+    ctx.fillText(statusDetail, W / 2, 62);
 
     const sum = (f: Faction) =>
       b.cohorts.filter((c) => c.faction === f && c.hp > 0).reduce((s, c) => s + cohortCount(c), 0);
@@ -252,6 +281,24 @@ export class GameRenderer {
     ctx.fillRect(0, 0, 8, AH);
     ctx.fillStyle = 'rgba(224,68,58,0.15)';
     ctx.fillRect(AW - 8, 0, 8, AH);
+
+    // Pincer Wall Blockers
+    if (b.retreatBlocked === 'AI') {
+      ctx.fillStyle = 'rgba(224,68,58,0.4)';
+      ctx.fillRect(AW - 16, 0, 16, AH);
+      ctx.fillStyle = '#ff938a';
+      ctx.font = 'bold 11px Cinzel';
+      ctx.textAlign = 'center';
+      ctx.fillText('BLOCKED', AW - 34, AH / 2);
+    }
+    if (b.retreatBlocked === 'PLAYER') {
+      ctx.fillStyle = 'rgba(59,139,224,0.4)';
+      ctx.fillRect(0, 0, 16, AH);
+      ctx.fillStyle = '#79b8ff';
+      ctx.font = 'bold 11px Cinzel';
+      ctx.textAlign = 'center';
+      ctx.fillText('BLOCKED', 34, AH / 2);
+    }
 
     for (const ar of b.arrows) {
       const x = ar.x1 + (ar.x2 - ar.x1) * ar.t;

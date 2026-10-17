@@ -92,7 +92,20 @@ document.querySelectorAll<HTMLButtonElement>('[data-sel]').forEach((btn) =>
 document.getElementById('cmd-advance')!.addEventListener('click', () => orderStance('ADVANCE'));
 document.getElementById('cmd-hold')!.addEventListener('click', () => orderStance('HOLD'));
 document.getElementById('cmd-retreat')!.addEventListener('click', () => orderStance('RETREAT'));
+
+let prevBattleActive = false;
+let lastBattleEndTime = 0;
+
 document.getElementById('restart')!.addEventListener('click', () => {
+  // Prevent accidental restart from rapid taps when exiting tactical battle
+  if (performance.now() - lastBattleEndTime < 1000) {
+    return;
+  }
+  const state = activeEngine.getState();
+  if (state.mode !== 'GAME_OVER') {
+    const ok = window.confirm('Restart game? Current battle progress will be lost.');
+    if (!ok) return;
+  }
   activeEngine.dispatch({ type: 'RESTART_GAME' });
 });
 
@@ -114,6 +127,11 @@ window.addEventListener('keydown', (e) => {
 function updateHud() {
   const state = activeEngine.getState();
   const tac = state.mode === 'TACTICAL';
+  if (prevBattleActive && !tac) {
+    lastBattleEndTime = performance.now();
+  }
+  prevBattleActive = tac;
+
   tacPanel.classList.toggle('hidden', !tac);
   helpPanel.classList.toggle('hidden', tac);
 

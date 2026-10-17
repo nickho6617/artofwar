@@ -64,6 +64,7 @@ export function createInitialState(): GameState {
     activeBattle: null,
     selectedId: null,
     aiTimer: 1,
+    shatterMessage: null,
   };
 }
 
@@ -107,6 +108,16 @@ export class GameEngine {
       case 'SET_TACTICAL_STANCE': {
         if (this.state.mode === 'TACTICAL' && this.state.activeBattle) {
           const b = this.state.activeBattle;
+          // Disallow player retreat while under ambush shock
+          if (
+            command.stance === 'RETREAT' &&
+            b.isAmbush &&
+            b.ambushFaction === 'AI' &&
+            (b.elapsedTime || 0) < 6.0
+          ) {
+            return;
+          }
+
           for (const c of b.cohorts) {
             const hasType =
               b.selected instanceof Set
@@ -183,11 +194,51 @@ export class GameEngine {
       this.state.aiTimer = 2;
     }
 
+    if (this.state.shatterMessage) {
+      this.state.shatterMessage.time -= dt;
+      if (this.state.shatterMessage.time <= 0) {
+        this.state.shatterMessage = null;
+      }
+    }
+
     if (this.checkWin()) return;
 
     for (const p of this.state.squads.filter((s) => s.faction === 'PLAYER')) {
       for (const a of this.state.squads.filter((s) => s.faction === 'AI')) {
         if (dist(p, a) < ENGAGE_R) {
+          const totalP = totalSquadUnits(p);
+          const totalA = totalSquadUnits(a);
+
+          // ──────────────── Shatter Remnant Rule ────────────────
+          // If enemy remnant has <= 4 men against a squad of >= 10 men, they are captured
+          if (totalA <= 4 && totalP >= 10) {
+            a.knights = 0;
+            a.archers = 0;
+            a.barbarians = 0;
+            p.condition = Math.max(0, p.condition - 4);
+            this.state.shatterMessage = {
+              text: `Enemy remnant (${totalA} men) shattered & captured!`,
+              time: 3,
+            };
+            this.state.squads = this.state.squads.filter((s) => totalSquadUnits(s) > 0);
+            this.checkWin();
+            return;
+          }
+
+          if (totalP <= 4 && totalA >= 10) {
+            p.knights = 0;
+            p.archers = 0;
+            p.barbarians = 0;
+            a.condition = Math.max(0, a.condition - 4);
+            this.state.shatterMessage = {
+              text: `Player remnant (${totalP} men) shattered & captured!`,
+              time: 3,
+            };
+            this.state.squads = this.state.squads.filter((s) => totalSquadUnits(s) > 0);
+            this.checkWin();
+            return;
+          }
+
           this.startBattle(p, a);
           return;
         }
@@ -254,19 +305,59 @@ export class GameEngine {
   // ───────────────────────── Tactical Arena ─────────────────────────
   private startBattle(p: Squad, a: Squad): void {
     const cohorts: TacticalCohort[] = [];
-    const layout: Record<UnitType, [number, number]> = {
-      knights: [210, 120],
-      archers: [90, 200],
-      barbarians: [210, 280],
-    };
+
+    const pTerr = this.terrainAt(p.x, p.y);
+    const aTerr = this.terrainAt(a.x, a.y);
+    const midTerr = this.terrainAt((p.x + a.x) / 2, (p.y + a.y) / 2);
+
+    // Forest Ambush detection
+    const pStationaryInForest = pTerr === 'FOREST' && dist(p, { x: p.targetX, y: p.targetY }) < 3;
+    const aStationaryInForest = aTerr === 'FOREST' && dist(a, { x: a.targetX, y: a.targetY }) < 3;
+
+    let isAmbush = false;
+    let ambushFaction: Faction | null = null;
+    if (pStationaryInForest && !aStationaryInForest) {
+      isAmbush = true;
+      ambushFaction = 'PLAYER';
+    } else if (aStationaryInForest && !pStationaryInForest) {
+      isAmbush = true;
+      ambushFaction = 'AI';
+    } else if (midTerr === 'FOREST' || pTerr === 'FOREST' || aTerr === 'FOREST') {
+      isAmbush = true;
+      ambushFaction = p.condition >= a.condition ? 'PLAYER' : 'AI';
+    }
+
+    // Pincer / Cut-off on strategic map: flanking squad within 110px
+    const otherPlayerNearAI = this.state.squads.some(
+      (s) => s.faction === 'PLAYER' && s.id !== p.id && dist(s, a) < 110
+    );
+    const otherAINearPlayer = this.state.squads.some(
+      (s) => s.faction === 'AI' && s.id !== a.id && dist(s, p) < 110
+    );
+
+    let retreatBlocked: Faction | null = null;
+    if (otherPlayerNearAI && !otherAINearPlayer) {
+      retreatBlocked = 'AI';
+    } else if (otherAINearPlayer && !otherPlayerNearAI) {
+      retreatBlocked = 'PLAYER';
+    }
 
     for (const [sq, f] of [
       [p, 'PLAYER'],
       [a, 'AI'],
     ] as [Squad, Faction][]) {
+      const hasMelee = sq.knights > 0 || sq.barbarians > 0;
+      const isAmbushing = isAmbush && ambushFaction === f;
+
       for (const t of TYPES) {
         if (sq[t] <= 0) continue;
-        const [lx, ly] = layout[t];
+        let lx = t === 'archers' ? (hasMelee ? 120 : 220) : 230;
+        let ly = t === 'knights' ? 120 : t === 'archers' ? 200 : 280;
+
+        if (isAmbushing) {
+          lx += 60;
+        }
+
         cohorts.push({
           faction: f,
           type: t,
@@ -292,6 +383,10 @@ export class GameEngine {
       aiCond: a.condition,
       selected: new Set(TYPES),
       aiTimer: 0,
+      isAmbush,
+      ambushFaction,
+      retreatBlocked,
+      elapsedTime: 0,
     };
     this.state.selectedId = null;
     this.state.mode = 'TACTICAL';
@@ -310,12 +405,20 @@ export class GameEngine {
         .filter((c) => c.faction === f && isCohortActive(c) && (!t || c.type === t))
         .reduce((s, c) => s + cohortCount(c), 0);
     const aiCoh = b.cohorts.filter((c) => c.faction === 'AI' && isCohortActive(c));
-    if (sum('AI') < 0.25 * sum('PLAYER')) {
+    const isAmbushed = b.isAmbush && b.ambushFaction === 'PLAYER' && (b.elapsedTime || 0) < 6.0;
+    const isBlocked = b.retreatBlocked === 'AI';
+
+    if (!isBlocked && !isAmbushed && sum('AI') < 0.25 * sum('PLAYER')) {
       aiCoh.forEach((c) => (c.stance = 'RETREAT'));
       return;
     }
     for (const c of aiCoh) {
-      if (c.stance === 'RETREAT') continue;
+      if (c.stance === 'RETREAT') {
+        if (isBlocked || isAmbushed) {
+          c.stance = 'HOLD';
+        }
+        continue;
+      }
       c.stance =
         c.type === 'archers'
           ? sum('AI', 'archers') > sum('PLAYER', 'archers')
@@ -327,6 +430,8 @@ export class GameEngine {
 
   private updateTactical(dt: number): void {
     const b = this.state.activeBattle!;
+    b.elapsedTime = (b.elapsedTime || 0) + dt;
+
     b.aiTimer -= dt;
     if (b.aiTimer <= 0) {
       this.aiTactical(b);
@@ -337,8 +442,28 @@ export class GameEngine {
       if (!isCohortActive(c)) continue;
       const st = STATS[c.type];
       if (c.stance === 'RETREAT') {
+        // If retreat is blocked (pincer / cut-off)
+        if (b.retreatBlocked === c.faction) {
+          const edgeX = c.faction === 'PLAYER' ? 30 : AW - 30;
+          c.x += Math.sign(edgeX - c.x) * st.speed * 0.9 * dt;
+          if (
+            (c.faction === 'PLAYER' && c.x - cohortRadius(c) <= 30) ||
+            (c.faction === 'AI' && c.x + cohortRadius(c) >= AW - 30)
+          ) {
+            c.hp = 0;
+            c.retreated = false;
+          }
+          continue;
+        }
+
+        // If ambushed, retreat is locked during shock period (< 6s)
+        if (b.isAmbush && b.ambushFaction && b.ambushFaction !== c.faction && (b.elapsedTime || 0) < 6.0) {
+          c.stance = 'HOLD';
+          continue;
+        }
+
         const edgeX = c.faction === 'PLAYER' ? 0 : AW;
-        c.x += Math.sign(edgeX - c.x) * st.speed * 1.2 * dt;
+        c.x += Math.sign(edgeX - c.x) * st.speed * 1.05 * dt;
         if (
           (c.faction === 'PLAYER' && c.x - cohortRadius(c) <= 0) ||
           (c.faction === 'AI' && c.x + cohortRadius(c) >= AW)
@@ -375,10 +500,11 @@ export class GameEngine {
       c.y = clamp(c.y, cohortRadius(c), AH - cohortRadius(c));
     }
 
-    // Separate allied blocks so they don't stack
+    // Push cohorts of same faction apart to prevent unnatural overlap
     for (const a of b.cohorts) {
       for (const o of b.cohorts) {
-        if (a === o || a.faction !== o.faction || !isCohortActive(a) || !isCohortActive(o)) continue;
+        if (a === o || a.faction !== o.faction || !isCohortActive(a) || !isCohortActive(o))
+          continue;
         const d = dist(a, o) || 0.01;
         const min = cohortRadius(a) + cohortRadius(o);
         if (d < min) {

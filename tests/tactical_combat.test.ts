@@ -136,4 +136,67 @@ describe('Tactical Combat Arena & Multipliers', () => {
       expect(survivingAi).toBeUndefined();
     });
   });
+
+  describe('Ambush, Pincer & Shatter Remnant Mechanics', () => {
+    it('captures overpowered enemy remnants (<=4 men) without entering tactical battle', () => {
+      const state: GameState = createInitialState();
+      const p = makeSquad('P0', 'PLAYER', 200, 200);
+      const a = makeSquad('A0', 'AI', 210, 200);
+      a.knights = 0;
+      a.archers = 2; // Only 2 archers left
+      a.barbarians = 0;
+      const aOther = makeSquad('A1', 'AI', 600, 100);
+
+      state.squads = [p, a, aOther];
+      const engine = new GameEngine(state);
+      engine.tick(0.05);
+
+      // Squad shattered & captured!
+      expect(engine.getState().mode).toBe('STRATEGIC');
+      expect(engine.getState().activeBattle).toBeNull();
+      expect(engine.getState().squads.find((s) => s.id === 'A0')).toBeUndefined();
+      expect(engine.getState().shatterMessage?.text).toContain('shattered & captured');
+    });
+
+    it('triggers Forest Ambush when stationary in forest and locks retreat', () => {
+      const state: GameState = createInitialState();
+      // Grid [0, 4] is 'F' (FOREST)
+      const p = makeSquad('P0', 'PLAYER', 4 * 50 + 25, 0 * 50 + 25);
+      p.targetX = p.x;
+      p.targetY = p.y; // stationary
+
+      const a = makeSquad('A0', 'AI', p.x + 10, p.y);
+      const aOther = makeSquad('A1', 'AI', 600, 100);
+      state.squads = [p, a, aOther];
+
+      const engine = new GameEngine(state);
+      engine.tick(0.05);
+
+      expect(engine.getState().mode).toBe('TACTICAL');
+      const b = engine.getState().activeBattle!;
+      expect(b.isAmbush).toBe(true);
+      expect(b.ambushFaction).toBe('PLAYER');
+
+      // AI tries to retreat but cannot during ambush shock
+      b.cohorts.filter((c) => c.faction === 'AI').forEach((c) => (c.hp = 1));
+      engine.tick(0.5);
+      const aiArchers = b.cohorts.find((c) => c.faction === 'AI' && c.type === 'archers')!;
+      expect(aiArchers.stance).not.toBe('RETREAT');
+    });
+
+    it('triggers Pincer and blocks retreat when a second friendly squad is near', () => {
+      const state: GameState = createInitialState();
+      const p1 = makeSquad('P0', 'PLAYER', 300, 300);
+      const p2 = makeSquad('P1', 'PLAYER', 250, 300); // Nearby flanking squad (< 110px)
+      const a = makeSquad('A0', 'AI', 315, 300);
+
+      state.squads = [p1, p2, a];
+      const engine = new GameEngine(state);
+      engine.tick(0.05);
+
+      expect(engine.getState().mode).toBe('TACTICAL');
+      const b = engine.getState().activeBattle!;
+      expect(b.retreatBlocked).toBe('AI');
+    });
+  });
 });

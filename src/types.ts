@@ -49,6 +49,10 @@ export interface Battle {
   aiCond: number;
   selected: Set<UnitType> | UnitType[];
   aiTimer: number;
+  isAmbush?: boolean;
+  ambushFaction?: Faction | null;
+  retreatBlocked?: Faction | null;
+  elapsedTime?: number;
 }
 
 export interface GameState {
@@ -61,6 +65,7 @@ export interface GameState {
   activeBattle: Battle | null;
   selectedId: string | null;
   aiTimer: number;
+  shatterMessage?: { text: string; time: number } | null;
 }
 
 // ───────────────────────── Commands ─────────────────────────

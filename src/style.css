@@ -15,11 +15,12 @@ body {
   display: flex; justify-content: center;
 }
 #app { width: min(820px, 100vw); padding: 16px 10px; display: flex; flex-direction: column; gap: 12px; }
-.topbar { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 h1 {
   margin: 0; font-family: 'Cinzel', serif; font-weight: 800; font-size: 1.6rem; letter-spacing: .06em;
   background: linear-gradient(90deg, var(--gold), hsl(30 80% 75%)); -webkit-background-clip: text; background-clip: text; color: transparent;
 }
+.top-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .status { margin: 0; color: var(--muted); font-size: .9rem; display: flex; align-items: center; gap: 8px; }
 .badge {
   font-size: 0.72rem;
@@ -31,6 +32,23 @@ h1 {
   color: var(--gold);
   font-weight: 600;
   text-transform: uppercase;
+}
+.btn-restart {
+  background: hsl(0 25% 18%);
+  border: 1px solid hsl(0 40% 35%);
+  color: hsl(0 60% 80%);
+  font-weight: 600;
+  font-size: 0.85rem;
+  padding: 6px 12px;
+  min-height: 36px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-restart:hover {
+  background: hsl(0 35% 24%);
+  border-color: hsl(0 55% 45%);
+  color: #fff;
 }
 .stage {
   border-radius: 12px; overflow: hidden; border: 1px solid hsl(42 50% 40% / .5);
@@ -66,6 +84,7 @@ button:hover { background: hsl(30 20% 24%); transform: translateY(-1px); box-sha
 button:active { transform: translateY(0); }
 button.active { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold) inset; background: hsl(40 30% 22%); }
 .cmd.advance { border-color: hsl(140 50% 40%); }
+.cmd.advance:hover { background: hsl(140 35% 22%); }
 .cmd.hold { border-color: hsl(45 60% 45%); }
 .cmd.retreat { border-color: hsl(0 60% 45%); }
 kbd { font-size: .7rem; opacity: .6; margin-left: 4px; border: 1px solid currentColor; border-radius: 3px; padding: 0 3px; }
@@ -108,6 +127,10 @@ kbd { font-size: .7rem; opacity: .6; margin-left: 4px; border: 1px solid current
   }
   .topbar {
     gap: 8px;
+  }
+  .top-actions {
+    width: 100%;
+    justify-content: space-between;
   }
   h1 {
     font-size: 1.3rem;
