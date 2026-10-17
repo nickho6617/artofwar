@@ -85,8 +85,28 @@ button:active { transform: translateY(0); }
 button.active { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold) inset; background: hsl(40 30% 22%); }
 .cmd.advance { border-color: hsl(140 50% 40%); }
 .cmd.advance:hover { background: hsl(140 35% 22%); }
+.cmd.advance.active {
+  background: hsl(140 45% 22%);
+  border-color: hsl(140 70% 50%);
+  box-shadow: 0 0 0 1px hsl(140 70% 50%) inset, 0 0 10px hsl(140 60% 40% / 0.5);
+  color: #fff;
+}
 .cmd.hold { border-color: hsl(45 60% 45%); }
+.cmd.hold:hover { background: hsl(45 40% 22%); }
+.cmd.hold.active {
+  background: hsl(45 45% 22%);
+  border-color: hsl(45 80% 55%);
+  box-shadow: 0 0 0 1px hsl(45 80% 55%) inset, 0 0 10px hsl(45 70% 45% / 0.5);
+  color: #fff;
+}
 .cmd.retreat { border-color: hsl(0 60% 45%); }
+.cmd.retreat:hover { background: hsl(0 40% 22%); }
+.cmd.retreat.active {
+  background: hsl(0 45% 22%);
+  border-color: hsl(0 80% 55%);
+  box-shadow: 0 0 0 1px hsl(0 80% 55%) inset, 0 0 10px hsl(0 70% 45% / 0.5);
+  color: #fff;
+}
 kbd { font-size: .7rem; opacity: .6; margin-left: 4px; border: 1px solid currentColor; border-radius: 3px; padding: 0 3px; }
 .help span { color: var(--muted); }
 .help b { color: var(--text); }

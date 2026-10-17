@@ -18,6 +18,7 @@ export interface Squad {
   barbarians: number;
   veteran?: boolean;
   mergeTargetId?: string | null;
+  retreatCooldown?: number;
 }
 
 export interface TacticalCohort {
@@ -29,6 +30,7 @@ export interface TacticalCohort {
   stance: Stance;
   cooldown: number;
   retreated: boolean;
+  retreatLinger?: number;
 }
 
 export interface Arrow {

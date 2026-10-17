@@ -144,4 +144,51 @@ describe('Strategic Movement & Terrain Modifiers', () => {
     const s = engine.getState().squads.find((s) => s.id === 'P0')!;
     expect(s.condition).toBe(0);
   });
+
+  describe('Post-Retreat Disengagement Buffer & Auto-Selection', () => {
+    it('pushes retreating squad back 100px and sets retreatCooldown to 3.0s', () => {
+      const state: GameState = createInitialState();
+      const p = makeSquad('P0', 'PLAYER', 300, 300);
+      const a = makeSquad('A0', 'AI', 315, 300);
+      state.squads = [p, a];
+      const engine = new GameEngine(state);
+
+      // Engage battle
+      engine.tick(0.05);
+      expect(engine.getState().mode).toBe('TACTICAL');
+
+      // Order retreat and eliminate player active presence via retreat
+      const b = engine.getState().activeBattle!;
+      b.cohorts.filter((c) => c.faction === 'PLAYER').forEach((c) => {
+        c.retreated = true;
+      });
+
+      // Tick to trigger endBattle
+      engine.tick(0.05);
+
+      expect(engine.getState().mode).toBe('STRATEGIC');
+      const pAfter = engine.getState().squads.find((s) => s.id === 'P0')!;
+      // Pushback separation is 100px (initial dist was 15px along x)
+      expect(pAfter.x).toBeLessThan(210); // 300 - 100 = 200
+      expect(pAfter.retreatCooldown).toBeCloseTo(3.0, 1);
+      expect(engine.getState().selectedId).toBe('P0');
+    });
+
+    it('prevents instant combat re-engagement while retreatCooldown is active', () => {
+      const state: GameState = createInitialState();
+      const p = makeSquad('P0', 'PLAYER', 300, 300);
+      p.retreatCooldown = 2.5; // active cooldown
+      const a = makeSquad('A0', 'AI', 310, 300); // 10px apart (< ENGAGE_R)
+      state.squads = [p, a];
+
+      const engine = new GameEngine(state);
+      engine.tick(0.1);
+
+      // Should remain in STRATEGIC mode due to cooldown
+      expect(engine.getState().mode).toBe('STRATEGIC');
+      expect(engine.getState().activeBattle).toBeNull();
+      const pAfter = engine.getState().squads.find((s) => s.id === 'P0')!;
+      expect(pAfter.retreatCooldown).toBeCloseTo(2.4, 1);
+    });
+  });
 });

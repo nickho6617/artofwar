@@ -1,6 +1,6 @@
 import './style.css';
 import { UnitType, Stance, Squad, GameCommand, GameState } from './types';
-import { GameEngine, totalSquadUnits } from './engine';
+import { GameEngine, totalSquadUnits, isCohortActive } from './engine';
 import { WasmGameEngine } from './wasmEngine';
 import { GameRenderer } from './renderer';
 import { domToCanvasCoords, getHitRadius, resolvePointerCommand } from './input';
@@ -225,7 +225,9 @@ function updateHud() {
       btnCombine.classList.add('hidden');
     }
 
-    if (rendezvousMode) {
+    if (sq?.retreatCooldown && sq.retreatCooldown > 0) {
+      selectionTextEl.textContent = `Squad ${state.selectedId}${vetBadge} retreated · Safe disengagement (${sq.retreatCooldown.toFixed(1)}s) · Tap map to march to safety`;
+    } else if (rendezvousMode) {
       selectionTextEl.textContent = `Squad ${state.selectedId}${vetBadge}: Tap ally squad to rendezvous & merge`;
     } else if (nearbyAlly) {
       selectionTextEl.textContent = `Squad ${state.selectedId}${vetBadge} adjacent to ${nearbyAlly.id} · Tap Combine or map to march`;
@@ -237,7 +239,8 @@ function updateHud() {
   }
 
   if (tac && state.activeBattle) {
-    const sel = state.activeBattle.selected;
+    const b = state.activeBattle;
+    const sel = b.selected;
     const isSelected = (unit: string): boolean => {
       if (unit === 'all') {
         return sel instanceof Set ? sel.size === 3 : sel.length === 3;
@@ -251,6 +254,20 @@ function updateHud() {
       const v = btn.dataset.sel!;
       btn.classList.toggle('active', isSelected(v));
     });
+
+    const activePlayerCohorts = b.cohorts.filter(
+      (c) =>
+        c.faction === 'PLAYER' &&
+        isCohortActive(c) &&
+        (sel instanceof Set ? sel.has(c.type) : (sel as UnitType[]).includes(c.type))
+    );
+    const hasAdvance = activePlayerCohorts.length > 0 && activePlayerCohorts.some((c) => c.stance === 'ADVANCE');
+    const hasHold = activePlayerCohorts.length > 0 && activePlayerCohorts.some((c) => c.stance === 'HOLD');
+    const hasRetreat = activePlayerCohorts.length > 0 && activePlayerCohorts.some((c) => c.stance === 'RETREAT');
+
+    document.getElementById('cmd-advance')?.classList.toggle('active', hasAdvance);
+    document.getElementById('cmd-hold')?.classList.toggle('active', hasHold);
+    document.getElementById('cmd-retreat')?.classList.toggle('active', hasRetreat);
   }
 }
 

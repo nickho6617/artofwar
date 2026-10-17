@@ -199,4 +199,62 @@ describe('Tactical Combat Arena & Multipliers', () => {
       expect(b.retreatBlocked).toBe('AI');
     });
   });
+
+  describe('Tactical Stance Controls & Retreat Turnaround', () => {
+    it('recalls all retreating player cohorts when ADVANCE is issued after RETREAT', () => {
+      const state: GameState = createInitialState();
+      const p = makeSquad('P0', 'PLAYER', 200, 200);
+      const a = makeSquad('A0', 'AI', 215, 200);
+      state.squads = [p, a];
+      const engine = new GameEngine(state);
+      engine.tick(0.05);
+
+      const b = engine.getState().activeBattle!;
+      expect(engine.getState().mode).toBe('TACTICAL');
+
+      // Order squad to retreat
+      engine.dispatch({ type: 'SET_TACTICAL_STANCE', stance: 'RETREAT' });
+      const playerCohorts = b.cohorts.filter((c) => c.faction === 'PLAYER');
+      expect(playerCohorts.every((c) => c.stance === 'RETREAT')).toBe(true);
+
+      // Now issue ADVANCE: all retreating cohorts should be recalled to ADVANCE
+      engine.dispatch({ type: 'SET_TACTICAL_STANCE', stance: 'ADVANCE' });
+      expect(playerCohorts.every((c) => c.stance === 'ADVANCE')).toBe(true);
+    });
+
+    it('provides a 1.5s grace period at the retreat edge before permanent elimination, allowing turnaround', () => {
+      const state: GameState = createInitialState();
+      const p = makeSquad('P0', 'PLAYER', 200, 200);
+      const a = makeSquad('A0', 'AI', 215, 200);
+      state.squads = [p, a];
+      const engine = new GameEngine(state);
+      engine.tick(0.05);
+
+      const b = engine.getState().activeBattle!;
+      // Order retreat
+      engine.dispatch({ type: 'SET_TACTICAL_STANCE', stance: 'RETREAT' });
+
+      // Move archers near left edge
+      const archer = b.cohorts.find((c) => c.faction === 'PLAYER' && c.type === 'archers')!;
+      archer.x = 20;
+
+      // Tick 0.5s: archer hits edge and enters retreat linger
+      engine.tick(0.5);
+      expect(archer.retreated).toBe(false);
+      expect(archer.retreatLinger).toBeDefined();
+      expect(archer.retreatLinger!).toBeGreaterThan(0);
+      expect(archer.retreatLinger!).toBeLessThanOrEqual(1.5);
+
+      // Turn around by issuing ADVANCE
+      const posX = archer.x;
+      engine.dispatch({ type: 'SET_TACTICAL_STANCE', stance: 'ADVANCE' });
+      expect(archer.stance).toBe('ADVANCE');
+      expect(archer.retreatLinger).toBeUndefined();
+
+      // Tick 0.5s: archer should advance forward (x increases)
+      engine.tick(0.5);
+      expect(archer.retreated).toBe(false);
+      expect(archer.x).toBeGreaterThan(posX);
+    });
+  });
 });

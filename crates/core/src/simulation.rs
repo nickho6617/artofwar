@@ -39,6 +39,7 @@ pub fn make_squad(id: &str, faction: Faction, x: f32, y: f32) -> Squad {
         barbarians: 15,
         veteran: false,
         merge_target_id: None,
+        retreat_cooldown: None,
     }
 }
 
@@ -133,14 +134,22 @@ impl CoreGameEngine {
             GameCommand::SetTacticalStance { stance } => {
                 if self.state.mode == GameMode::Tactical {
                     if let Some(ref mut b) = self.state.active_battle {
+                        let all_retreating = b.cohorts.iter().any(|c| c.faction == Faction::Player && c.is_active())
+                            && b.cohorts.iter().filter(|c| c.faction == Faction::Player && c.is_active()).all(|c| c.stance == Stance::Retreat);
                         let selected = b.selected.clone();
                         for c in b.cohorts.iter_mut() {
                             if c.faction == Faction::Player
                                 && c.is_active()
-                                && (stance == Stance::Retreat || selected.contains(&c.unit_type))
+                                && (stance == Stance::Retreat || all_retreating || selected.contains(&c.unit_type))
                             {
                                 c.stance = stance;
+                                if stance != Stance::Retreat {
+                                    c.retreat_linger = None;
+                                }
                             }
+                        }
+                        if all_retreating && (stance == Stance::Advance || stance == Stance::Hold) {
+                            b.selected = UnitType::ALL.to_vec();
                         }
                     }
                 }
@@ -278,6 +287,15 @@ impl CoreGameEngine {
         }
 
         for s in self.state.squads.iter_mut() {
+            if let Some(cd) = s.retreat_cooldown {
+                let next_cd = cd - dt;
+                if next_cd <= 0.0 {
+                    s.retreat_cooldown = None;
+                } else {
+                    s.retreat_cooldown = Some(next_cd);
+                }
+            }
+
             let dx = s.target_x - s.x;
             let dy = s.target_y - s.y;
             let d = (dx * dx + dy * dy).sqrt();
@@ -329,6 +347,9 @@ impl CoreGameEngine {
             for &ai in &ai_indices {
                 let p = &self.state.squads[pi];
                 let a = &self.state.squads[ai];
+                if p.retreat_cooldown.is_some() || a.retreat_cooldown.is_some() {
+                    continue;
+                }
                 if dist(p.x, p.y, a.x, a.y) < ENGAGE_R {
                     self.start_battle(pi, ai);
                     return;
@@ -522,6 +543,7 @@ impl CoreGameEngine {
                         stance: Stance::Hold,
                         cooldown: 0.2,
                         retreated: false,
+                        retreat_linger: None,
                     });
                 }
             }
@@ -582,11 +604,20 @@ impl CoreGameEngine {
             if c_stance == Stance::Retreat {
                 let edge_x = if c_faction == Faction::Player { 0.0 } else { AW };
                 let dir = (edge_x - b.cohorts[i].x).signum();
-                b.cohorts[i].x += dir * c_speed * 1.2 * dt;
-                if (c_faction == Faction::Player && b.cohorts[i].x - c_radius <= 0.0)
-                    || (c_faction == Faction::Ai && b.cohorts[i].x + c_radius >= AW)
-                {
-                    b.cohorts[i].retreated = true;
+                b.cohorts[i].x += dir * c_speed * 1.05 * dt;
+                let at_edge = (c_faction == Faction::Player && b.cohorts[i].x - c_radius <= 0.0)
+                    || (c_faction == Faction::Ai && b.cohorts[i].x + c_radius >= AW);
+                if at_edge {
+                    if c_faction == Faction::Player {
+                        b.cohorts[i].x = c_radius;
+                    } else {
+                        b.cohorts[i].x = AW - c_radius;
+                    }
+                    let linger = b.cohorts[i].retreat_linger.get_or_insert(1.5);
+                    *linger -= dt;
+                    if *linger <= 0.0 {
+                        b.cohorts[i].retreated = true;
+                    }
                 }
                 continue;
             }
@@ -832,10 +863,11 @@ impl CoreGameEngine {
                     let d = dist(px, py, ax, ay).max(1.0);
                     let ux = (px - ax) / d;
                     let uy = if d > 1.0 { (py - ay) / d } else { 1.0 };
-                    p.x = clamp(p.x + ux * 60.0, 10.0, W - 10.0);
-                    p.y = clamp(p.y + uy * 60.0, 10.0, H - 10.0);
+                    p.x = clamp(p.x + ux * 100.0, 10.0, W - 10.0);
+                    p.y = clamp(p.y + uy * 100.0, 10.0, H - 10.0);
                     p.target_x = p.x;
                     p.target_y = p.y;
+                    p.retreat_cooldown = Some(3.0);
                 }
             }
             if !a_active {
@@ -843,10 +875,11 @@ impl CoreGameEngine {
                     let d = dist(ax, ay, px, py).max(1.0);
                     let ux = (ax - px) / d;
                     let uy = if d > 1.0 { (ay - py) / d } else { -1.0 };
-                    a.x = clamp(a.x + ux * 60.0, 10.0, W - 10.0);
-                    a.y = clamp(a.y + uy * 60.0, 10.0, H - 10.0);
+                    a.x = clamp(a.x + ux * 100.0, 10.0, W - 10.0);
+                    a.y = clamp(a.y + uy * 100.0, 10.0, H - 10.0);
                     a.target_x = a.x;
                     a.target_y = a.y;
+                    a.retreat_cooldown = Some(3.0);
                 }
             }
             if p_active {
@@ -858,6 +891,9 @@ impl CoreGameEngine {
         }
 
         self.state.squads.retain(|s| s.total() > 0);
+        if self.state.squads.iter().any(|s| s.id == b.attacker_id) {
+            self.state.selected_id = Some(b.attacker_id.clone());
+        }
         self.state.active_battle = None;
         self.state.mode = GameMode::Strategic;
         self.check_win();

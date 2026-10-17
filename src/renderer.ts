@@ -18,6 +18,7 @@ import {
   dist,
   cohortCount,
   cohortRadius,
+  isCohortActive,
 } from './engine';
 
 interface WaypointRipple {
@@ -364,9 +365,35 @@ export class GameRenderer {
       ctx.fillText(STATS[c.type].label, c.x, c.y - 6);
       ctx.font = 'bold 12px Inter';
       ctx.fillText(String(cohortCount(c)), c.x, c.y + 9);
-      ctx.font = '10px Inter';
-      ctx.fillStyle = 'rgba(255,255,255,0.8)';
-      ctx.fillText(c.stance, c.x, c.y + h / 2 + 10);
+
+      let stanceLabel: string = c.stance;
+      let stanceColor = '#6fe06f'; // Advance (green)
+
+      if (c.stance === 'ADVANCE') {
+        if (c.type === 'archers') {
+          const hasFoeInRange = b.cohorts.some(
+            (o) =>
+              o.faction !== c.faction &&
+              isCohortActive(o) &&
+              dist(c, o) - cohortRadius(c) - cohortRadius(o) <= 240
+          );
+          if (hasFoeInRange) {
+            stanceLabel = 'FIRING';
+            stanceColor = '#7ce6ff'; // Cyan firing indicator
+          }
+        }
+      } else if (c.stance === 'HOLD') {
+        stanceColor = '#ffd860'; // Gold hold
+      } else if (c.stance === 'RETREAT') {
+        stanceColor = '#ff6b6b'; // Red retreat
+        if (c.retreatLinger !== undefined && c.retreatLinger > 0) {
+          stanceLabel = `RETREATING (${c.retreatLinger.toFixed(1)}s)`;
+        }
+      }
+
+      ctx.font = 'bold 9px Inter';
+      ctx.fillStyle = stanceColor;
+      ctx.fillText(stanceLabel, c.x, c.y + h / 2 + 11);
       ctx.globalAlpha = 1;
     }
     ctx.restore();

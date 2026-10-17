@@ -1,80 +1,58 @@
-# Todo: Combining Decimated Squads into a Powerful Veteran Squad
+# Todo: Tactical Retreat Turnaround & Advance Controls
 
-## Task 1: Core Domain & Dual-Engine Merge Logic
-**Description:** Add veteran and merge tracking fields to domain models, implement the `COMBINE_SQUADS` command, and build troop pooling, condition formula (+15% morale recovery), and +10% veteran combat damage buff across TypeScript and Rust engines.
+## Task 1: Symmetric Stance Scoping & Recall in Simulation Cores
+**Description:** Update `SET_TACTICAL_STANCE` across TypeScript and Rust cores so that `ADVANCE` and `HOLD` reliably recall retreating cohorts, and provide a 1.5s turnaround grace period before permanent edge elimination.
 **Acceptance criteria:**
-- [x] `Squad` interface in `src/types.ts` and `crates/core/src/types.rs` includes `veteran?: boolean` and `mergeTargetId?: string | null`.
-- [x] `GameCommand` includes `{ type: 'COMBINE_SQUADS'; sourceId: string; targetId: string }` in TS and Rust.
-- [x] `combineSquads(sourceId, targetId)` correctly pools knights, archers, and barbarians (capped at squad max capacity).
-- [x] Resulting squad receives troop-weighted condition average + 15% morale bonus (clamped to 100%) and has `veteran = true`.
-- [x] Source squad is cleanly removed from `state.squads`.
-- [x] Tactical combat deals 1.10x (+10%) damage when the attacker belongs to a veteran squad.
-- [x] Unit tests in new `tests/combine_squads.test.ts` verify pooling, condition calculation, veteran buff, and capacity clamping.
+- [x] In `src/engine.ts` and `crates/core/src/simulation.rs`, when `command.stance === 'ADVANCE'` or `'HOLD'` is dispatched, all retreating player cohorts (or selected cohorts) immediately switch stance and turn back toward the enemy.
+- [x] Cohorts reaching the left edge linger for 1.5s before permanent `retreated = true` flag is set, enabling last-second turnaround orders.
+- [x] Unit tests in `tests/tactical_combat.test.ts` verify that issuing `ADVANCE` after `RETREAT` turns all cohorts back to `ADVANCE` and resumes forward movement.
+- [x] Cargo test in `crates/core/src/lib.rs` verifies identical stance switching in Rust core.
 **Verification:**
-- [x] Tests pass: `npx vitest run tests/combine_squads.test.ts`
+- [x] Tests pass: `npx vitest run tests/tactical_combat.test.ts`
+- [x] Cargo tests pass: `cargo test -p artofwar-core`
 - [x] All tests pass: `npm test`
 **Dependencies:** None
-**Files touched:**
-- `src/types.ts`
+**Files likely touched:**
 - `src/engine.ts`
-- `crates/core/src/types.rs`
 - `crates/core/src/simulation.rs`
-- `tests/combine_squads.test.ts`
+- `crates/core/src/lib.rs`
+- `tests/tactical_combat.test.ts`
 
 ---
 
-## Task 2: AI Autonomous Regrouping
-**Description:** Enhance `aiThink()` so the AI evaluates depleted squads (< 12 men) and marches them toward the nearest friendly squad with capacity, automatically combining upon reaching rendezvous proximity ($\le 25\text{px}$).
+## Task 2: Active Stance Highlighting & Enhanced Cohort Stance Badges
+**Description:** Add dynamic `.active` button states for tactical orders in `src/main.ts` and color-coded stance badges in `src/renderer.ts`.
 **Acceptance criteria:**
-- [x] When an AI squad has $< 12$ total men, `aiThink()` directs it toward the closest friendly AI squad with capacity instead of suicide-charging or getting shattered.
-- [x] When two friendly AI squads are within merge radius ($\le 25\text{px}$) and one is depleted, they automatically combine into a reinforced veteran squad.
-- [x] Prevents AI from creating invalid loops or targeting dead squads.
-- [x] Unit tests in `tests/ai.test.ts` verify AI regrouping and combination behavior.
+- [x] Tactical order buttons (`#cmd-advance`, `#cmd-hold`, `#cmd-retreat`) receive `.active` styling based on the active stance of the selected cohorts.
+- [x] CSS in `src/style.css` provides clear visual themes for active stance buttons: Green for Advance, Gold for Hold, Red for Retreat.
+- [x] Cohort stance text in `src/renderer.ts` is rendered with distinctive color coding (`#6fe06f` for Advance, `#ffd860` for Hold, `#ff5252` for Retreat).
+- [x] When archers are in `ADVANCE` but holding to fire within 240px, the badge displays `FIRING` or `ADVANCE (IN RANGE)` so players understand their behavior.
 **Verification:**
-- [x] Tests pass: `npx vitest run tests/ai.test.ts`
-- [x] All tests pass: `npm test`
-**Dependencies:** Task 1
-**Files touched:**
-- `src/engine.ts`
-- `crates/core/src/simulation.rs`
-- `tests/ai.test.ts`
-
----
-
-## Task 3: Strategic Input & Rendezvous HUD Controls
-**Description:** Implement the contextual "⚔️ Combine Squads" button and "March to Merge" order mode in the strategic HUD and input resolver.
-**Acceptance criteria:**
-- [x] When a selected player squad is within $35\text{px}$ of another friendly squad, the HUD displays a prominent button: `⚔️ Combine Squads (P0 + P1) ⭐`.
-- [x] Clicking/tapping the Combine button dispatches `COMBINE_SQUADS` and merges the squads immediately.
-- [x] When a squad is selected, HUD provides a "Rendezvous" button allowing the player to target an ally squad to march toward and merge upon contact.
-- [x] Input interactions maintain complete mobile/touch ergonomics ($\ge 44\text{px}$ touch targets, no accidental map scrolling).
-- [x] Input unit tests cover combine command dispatch and rendezvous resolution in `tests/input.test.ts`.
-**Verification:**
-- [x] Tests pass: `npx vitest run tests/input.test.ts`
 - [x] Build succeeds: `npm run build:web`
+- [x] Manual check: Order buttons visibly highlight upon clicking Advance / Hold / Retreat.
 **Dependencies:** Task 1
-**Files touched:**
-- `index.html`
-- `src/input.ts`
+**Files likely touched:**
 - `src/main.ts`
 - `src/style.css`
-- `tests/input.test.ts`
+- `src/renderer.ts`
 
 ---
 
-## Task 4: Visual Feedback, Veteran FX & Tactical Display
-**Description:** Add visual representation for Veteran squads (golden star ⭐ badge, golden halo ring), rendezvous march line, and floating banner announcements upon squad combination.
+## Task 3: Strategic Disengagement Buffer & Auto-Selection
+**Description:** Implement safe pushback separation ($100\text{px}$) and a 3-second disengagement grace period upon battle exit, with automatic squad selection for quick retreat maneuvering.
 **Acceptance criteria:**
-- [x] Strategic squad renderer in `src/renderer.ts` draws a gold star ⭐ badge and gold halo ring when `squad.veteran` is true.
-- [x] When a squad is marching toward an ally on a rendezvous order, a distinctive golden dashed line connects them.
-- [x] When squads combine, display a floating notification banner: `Player/Enemy squads combined into Veteran Force (... men, +10% DMG)!`.
-- [x] Tactical arena displays a `⭐ VETERAN` badge next to the veteran squad's cohorts and HUD.
+- [x] `endBattle` in `src/engine.ts` and `crates/core/src/simulation.rs` pushes retreating squads back $100\text{px}$ (up from $60\text{px}$).
+- [x] Squads retreating from battle receive a 3.0s strategic engagement grace period preventing immediate re-engagement loops by pursuing AI squads.
+- [x] The retreating squad is automatically selected (`selectedId = p.id`) upon return to the strategic map.
+- [x] Strategic HUD displays clear instructions: `Squad P0 retreated · Tap map to march to safety or fort`.
+- [x] Unit tests in `tests/strategic_movement.test.ts` verify the safe pushback distance and march resumption.
 **Verification:**
-- [x] Build succeeds: `npm run build`
+- [x] Tests pass: `npx vitest run tests/strategic_movement.test.ts`
+- [x] Full build succeeds: `npm run build`
 - [x] All tests pass: `npm test` and `cargo test -p artofwar-core`
-**Dependencies:** Task 1, Task 3
-**Files touched:**
-- `src/renderer.ts`
-- `src/style.css`
-- `index.html`
+**Dependencies:** Task 1, Task 2
+**Files likely touched:**
+- `src/engine.ts`
+- `crates/core/src/simulation.rs`
 - `src/main.ts`
+- `tests/strategic_movement.test.ts`

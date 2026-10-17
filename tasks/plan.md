@@ -1,90 +1,87 @@
-# Implementation Plan: Combining Decimated Squads into a Powerful Veteran Squad
+# Implementation Plan: Tactical Retreat Turnaround & Responsive Advance Controls
 
-## Overview
-In campaign gameplay, squads take casualties during tactical battles, often leaving decimated remnant forces (e.g., 2–8 men). Currently, there is no mechanism to merge or reorganize depleted squads. These small fragments clutter the strategic map, become vulnerable to the Shatter Remnants rule ($\le 4$ men captured instantly), and dilute player combat effectiveness.
+## Overview & Problem Diagnosis
+Currently, when a player orders a retreat during a tactical auto-battle, attempting to order an advance again appears broken or unresponsive. A deep architectural trace reveals five interconnected root causes across simulation logic and UI feedback:
 
-This feature introduces **Squad Consolidation & Veteran Reinforcement**: allowing two depleted or decimated friendly squads to merge into a single reinforced, battle-hardened squad. The combined squad inherits pooled troop counts, a weighted condition with a **+15% Morale Consolidation boost**, and a permanent **Veteran Trait (⭐ +10% Combat Effectiveness)**. Both player controls (intuitive proximity HUD button + march-to-merge order) and autonomous AI routines ("Sun Tzu" regrouping) will support squad combination across both the **TypeScript fallback** and **Rust + WebAssembly** simulation cores.
+1. **Asymmetric Stance Scoping:**
+   In both `src/engine.ts` and `crates/core/src/simulation.rs`, the `SET_TACTICAL_STANCE` handler implements asymmetric logic:
+   ```ts
+   // Retreat applies to ALL player cohorts unconditionally:
+   (command.stance === 'RETREAT' || hasType)
+   ```
+   When `Retreat` (`R`) is clicked, **all** cohorts are forced into `RETREAT`. However, when the player subsequently clicks `Advance` (`A`), the command only applies to `hasType` (the currently selected cohort filter). If the player previously selected `Knights` or `Archers`, clicking `Advance` only orders that single cohort to advance—the rest of the squad continues fleeing toward the boundary and vanishes from the battlefield!
+
+2. **Rapid, Permanent Edge Elimination (`retreated = true`):**
+   Archers deploy at $x = 120$ and Barbarians at $x = 230$. When retreating at full speed ($44\text{–}74\text{px/s}$), cohorts reach the left edge ($x \le \text{radius}$) in **under 2.1 seconds**. The instant a cohort touches the border, `c.retreated = true` is set. Because `isCohortActive()` requires `!c.retreated`, these units are permanently disqualified from active combat. Any `Advance` order issued even 2 seconds after a retreat cannot recall them.
+
+3. **Archers Stand Still When Switched to Advance Within Range:**
+   When archers switch from `RETREAT` to `ADVANCE`, `updateTactical` evaluates:
+   ```ts
+   if (edge <= reach) { /* Shoot arrows without moving */ }
+   else if (c.stance === 'ADVANCE') { /* Move forward */ }
+   ```
+   Because archers have `reach = 240px`, any enemy within 240px causes archers to stop in their tracks and fire. Without active stance feedback, players assume the archers failed to register the `Advance` order and are stuck.
+
+4. **Zero Visual Feedback on Active Stance Buttons:**
+   Unit selection buttons (`All`, `Knights`, `Archers`, `Barbarians`) have `.active` CSS state. However, the order buttons (`cmd-advance`, `cmd-hold`, `cmd-retreat`) have **no `.active` state** in `updateHud()`. Players have no visual confirmation of whether their Advance or Hold order took effect.
+
+5. **Post-Battle Immediate Re-engagement Trap:**
+   When all cohorts retreat off the screen, the squad is pushed back only $60\text{px}$ on the strategic map with `selectedId = null`. Because pursuing AI squads have $>70$ Condition, the AI immediately charges and re-engages the player squad within 1.5 seconds, trapping the player in an inescapable combat loop.
 
 ---
 
-## Architecture & Game Design Decisions
+## Architecture Decisions
 
-### 1. Merge Rules & Capacity Limits
-- **Eligibility:** Any two friendly squads belonging to the same faction where at least one squad is depleted ($< 45$ total men, or depleted cohort).
-- **Troop Consolidation:**
-  - Knights, Archers, and Barbarians are pooled:
-    $$\text{knights}_{\text{new}} = \min(25, s_1.\text{knights} + s_2.\text{knights})$$
-    $$\text{archers}_{\text{new}} = \min(25, s_1.\text{archers} + s_2.\text{archers})$$
-    $$\text{barbarians}_{\text{new}} = \min(25, s_1.\text{barbarians} + s_2.\text{barbarians})$$
-  - Overall squad cap is standard max 45 men (or up to 50 for a super-reinforced squad).
-- **Condition & Morale Recovery:**
-  - Condition is calculated as the troop-weighted average of both squads plus a **+15% Morale Consolidation bonus** (clamped to 100%):
-    $$\text{cond}_{\text{new}} = \min\left(100, \frac{s_1.\text{cond} \times n_1 + s_2.\text{cond} \times n_2}{n_1 + n_2} + 15\right)$$
-- **"More Powerful" Veteran Trait (`veteran: boolean` or `veteranTier: number`):**
-  - Combining battle-tested squads promotes the unit to **Veteran Squad** status (`veteran: true`).
-  - In tactical combat, Veteran squads deal **+10% bonus damage** and have a distinctive visual identity (golden star badge ⭐, golden rim on the strategic map, and tactical banner).
+### 1. Symmetric & Squad-Aware Stance Dispatch (Dual-Engine Parity)
+- In both `src/engine.ts` and `crates/core/src/simulation.rs`:
+  - When `command.stance === 'ADVANCE'` or `'HOLD'` is dispatched:
+    - If `b.selected` is `'all'` OR if all active cohorts are currently in `RETREAT`, the command applies to **all** active player cohorts.
+    - This allows a single tap of `Advance` or pressing `A` to immediately rally the entire retreating squad and turn them back into the fray.
+  - If a specific cohort filter is selected (e.g. `Knights`), clicking `Advance` switches that cohort to `ADVANCE`, while `All` -> `Advance` switches the entire army.
 
-### 2. Interaction Model & Ergonomics (Desktop & Mobile)
-To prevent accidental merges during pincer maneuvers (where squads need to operate within 110px of each other), squad merging requires explicit intent:
-1. **Contextual HUD Combine Button (Immediate Merge):**
-   - When a squad $A$ is selected and within rendezvous range ($\le 35\text{px}$) of a friendly squad $B$, the strategic HUD surfaces a high-visibility button:
-     `⚔️ Combine Squads (P0 + P1) ⭐`
-   - Tapping/clicking the button immediately combines them into $A$ and removes $B$, showing an animated golden particle/ripple and notification banner.
-2. **March-to-Merge Order (`MERGE_SQUADS_ORDER`):**
-   - When a squad $A$ is selected, player can tap a "Rendezvous / Merge" button in the HUD to enter Merge Target mode, or right-click/target a friendly squad directly.
-   - Squad $A$ marches toward Squad $B$; upon arriving within rendezvous distance ($\le 25\text{px}$), they automatically consolidate into a single veteran squad.
-3. **Safety & Deselection:**
-   - Standard tap-to-select and tap-to-march behaviors are preserved with zero regression.
+### 2. Turnaround Window & Border Grace Period
+- Cohorts that have reached the retreat border ($x \le \text{radius}$) will linger in a border buffer for **1.5 seconds** before being permanently marked `c.retreated = true`.
+- If an `ADVANCE` or `HOLD` command is received while lingering at the border, the cohort resets its retreat status, turns around, and marches back into battle.
+- This gives players an intuitive, forgiving window to correct misclicks or adapt tactical decisions without losing their entire army.
 
-### 3. AI Autonomous Regrouping ("Sun Tzu Regroup")
-- During the AI decision cycle (`aiThink()` every 2.0s):
-  - The AI evaluates its forces. If an AI squad is decimated ($< 12$ total men or in shatter danger $\le 4$ men), it searches for the nearest friendly AI squad that has capacity ($< 45$ men).
-  - The AI issues a rendezvous order to march toward the ally squad.
-  - When within merge radius ($\le 25\text{px}$), the AI squads automatically combine, creating a reinforced AI veteran squad and preventing easy mop-up captures.
+### 3. Tactical HUD Stance Highlighting & Visual Indicators
+- In `src/main.ts`, update `updateHud()` to dynamically toggle `.active` on `#cmd-advance`, `#cmd-hold`, and `#cmd-retreat` based on the stance of the currently selected cohort(s).
+- In `src/renderer.ts`, render color-coded stance badges under each cohort:
+  - `ADVANCE`: Vibrant Green (`#6fe06f`)
+  - `HOLD`: Warm Gold (`#ffd860`)
+  - `RETREAT`: Crimson Red (`#ff5252`)
+- For archers in `ADVANCE` within firing range, display `FIRING` or `ADVANCE (IN RANGE)` so players understand why archers are holding position to fire volleys.
 
-### 4. Dual-Core Simulation Parity
-- **TypeScript Engine (`src/engine.ts` & `src/types.ts`)**:
-  - Add `veteran?: boolean` and optional `mergeTargetId?: string | null` to `Squad`.
-  - Add `COMBINE_SQUADS` command to `GameCommand`:
-    `{ type: 'COMBINE_SQUADS'; sourceId: string; targetId: string }`
-  - Implement merge resolution logic, condition calculation, veteran buff, and combat damage multiplier.
-- **Rust / WebAssembly Engine (`crates/core/src/types.rs` & `crates/core/src/simulation.rs`)**:
-  - Add `pub veteran: bool` and `pub merge_target_id: Option<String>` to `Squad`.
-  - Add `CombineSquads { source_id: String, target_id: String }` to `GameCommand`.
-  - Implement identical merge arithmetic, condition formula, and tactical multiplier in Rust.
+### 4. Strategic Disengagement Grace Period & Auto-Selection
+- When a squad finishes retreating from battle:
+  - Increase the safe pushback distance from $60\text{px}$ to **$100\text{px}$**.
+  - Add a **3.0-second disengagement cooldown** (`retreatCooldown: 3.0`) during which enemy AI squads will not immediately re-engage the retreating squad.
+  - Automatically select the retreating squad (`selectedId = p.id`) upon return to the strategic map and display an actionable HUD prompt:
+    `Squad P0 retreated! Tap map to march to safety or fort.`
 
 ---
 
 ## Task Breakdown
 
-### Phase 1: Engine Domain Types & Simulation Logic
-- [ ] **Task 1: Core Domain & Dual-Engine Merge Logic**
-  - Add `veteran` and `mergeTargetId` fields to `Squad` in `src/types.ts` and `crates/core/src/types.rs`.
-  - Add `COMBINE_SQUADS` command to `GameCommand` in TS and Rust.
-  - Implement `combineSquads(sourceId, targetId)` in `src/engine.ts` and `crates/core/src/simulation.rs`.
-  - Incorporate the `veteran` damage bonus (+10%) in tactical combat damage calculation.
-  - Implement rendezvous auto-merge when a squad reaches its `mergeTargetId`.
-  - Unit tests in `tests/strategic_state.test.ts` and new `tests/combine_squads.test.ts`.
+### Phase 1: Symmetric Tactical Stance Dispatch & Turnaround Logic
+- [ ] **Task 1: Symmetric Stance Scoping & Recall in Simulation Cores**
+  - Update `SET_TACTICAL_STANCE` in `src/engine.ts` and `crates/core/src/simulation.rs` so that `ADVANCE` and `HOLD` recall all retreating cohorts when general squad advance is ordered.
+  - Implement a 1.5s border turnaround grace window so squads touching the boundary can turn around and advance if ordered before battle ends.
+  - Unit tests in `tests/tactical_combat.test.ts` verifying that issuing `ADVANCE` after `RETREAT` immediately turns cohorts back toward enemies across both TS and Rust engines.
 
-### Phase 2: AI Strategic Regrouping
-- [ ] **Task 2: AI Decimated Squad Consolidation**
-  - Update `aiThink()` in `src/engine.ts` and `simulation.rs`: AI detects depleted squads ($< 12$ men) and assigns them to rendezvous with the nearest friendly squad.
-  - Trigger merge when AI squads arrive within distance ($\le 25\text{px}$).
-  - Comprehensive unit tests in `tests/ai.test.ts`.
+### Phase 2: Tactical HUD Stance States & Cohort Feedback
+- [ ] **Task 2: Active Stance Highlighting & Enhanced Cohort Stance Badges**
+  - Update `updateHud()` in `src/main.ts` to toggle `.active` on `#cmd-advance`, `#cmd-hold`, and `#cmd-retreat`.
+  - Add `.cmd.advance.active`, `.cmd.hold.active`, `.cmd.retreat.active` button styles in `src/style.css`.
+  - Color-code cohort stance text in `src/renderer.ts` with distinct green/gold/red badges.
+  - Clarify archer range-engagement status (`FIRING` / `ADVANCE`).
 
-### Phase 3: Player Controls & HUD Interactions
-- [ ] **Task 3: Strategic Input & Rendezvous Command**
-  - Update `src/input.ts` to support merge-intent targeting (via HUD mode or targeted action).
-  - Add contextual "⚔️ Combine Squads" action button in the strategic HUD when two friendly squads are within rendezvous range ($\le 35\text{px}$).
-  - Add "Merge Order" button in HUD when a depleted squad is selected.
-  - Unit tests in `tests/input.test.ts`.
-
-### Phase 4: Visual Feedback & Rendering
-- [ ] **Task 4: Veteran Squad Rendering & Consolidation FX**
-  - Render golden star badge ⭐ and golden ring for Veteran squads on the campaign map in `src/renderer.ts`.
-  - Display Veteran indicator in tactical combat cohort headers.
-  - Add floating banner notification: *"Squads Combined! Veteran Force Formed (+10% Combat Bonus)"*.
-  - Render dashed rendezvous link when a squad is marching to merge with an ally.
+### Phase 3: Strategic Disengagement & Seamless Post-Battle Recovery
+- [ ] **Task 3: Strategic Disengagement Buffer & Auto-Selection**
+  - Increase post-retreat pushback distance to $100\text{px}$ in `endBattle` (`src/engine.ts` and `simulation.rs`).
+  - Add a 3.0s strategic engagement grace period preventing immediate re-engagement loops.
+  - Auto-select the retreating squad upon battle exit so players can instantly issue march orders to safety.
+  - Unit tests in `tests/strategic_movement.test.ts` verifying disengagement and march resumption.
 
 ---
 
@@ -92,22 +89,20 @@ To prevent accidental merges during pincer maneuvers (where squads need to opera
 
 ### Automated Tests
 - `npm test`:
-  - `tests/combine_squads.test.ts` verifying troop pooling, condition recovery, veteran buff, and capacity limits.
-  - `tests/strategic_state.test.ts` verifying squad removal, state updates, and win condition checks.
-  - `tests/ai.test.ts` verifying AI depleted squad regrouping behavior.
-  - `tests/input.test.ts` verifying HUD and pointer interaction triggers.
-- Production build:
-  - `npm run build:web` (`tsc && vite build`)
-  - `npm run build:wasm` (`cargo build ...`)
+  - `tests/tactical_combat.test.ts`: test issuing `RETREAT`, then issuing `ADVANCE`, verifying all cohorts turn back to `ADVANCE` and move forward.
+  - `tests/strategic_movement.test.ts`: test post-retreat squad selection and movement.
+- `cargo test -p artofwar-core`:
+  - Verify Rust core handles `SetTacticalStance` symmetry and turnaround logic.
+- `npm run build`:
+  - Verify Wasm compilation and Vite production build.
 
 ### Manual Verification
-1. **Player Squad Combination:**
-   - Deploy player squad into battle, retreat or take casualties until reduced to ~10 men.
-   - March depleted squad next to another player squad ($\le 35\text{px}$).
-   - Verify contextual "⚔️ Combine Squads" button appears in HUD with troop count preview.
-   - Click Combine: verify squad counts merge, veteran ⭐ star appears, and notification pops up.
-   - Enter tactical combat with the veteran squad: verify +10% combat efficiency and veteran marker.
-2. **AI Squad Combination:**
-   - Damage an AI squad down to 5 men. Observe AI strategic phase: AI squad retreats/marches toward an ally squad and combines upon meeting.
-3. **Touch / Mobile Emulation:**
-   - Verify Combine button meets $\ge 44\text{px}$ touch target height and responds smoothly to mobile taps without viewport jitter.
+1. **In-Battle Retreat and Advance:**
+   - Engage an enemy squad on the campaign map to enter Tactical Arena.
+   - Click `Retreat` (or press `R`): verify all cohorts turn around and march left toward the border; verify `#cmd-retreat` is highlighted in red.
+   - Click `Advance` (or press `A`): verify all cohorts immediately halt retreat, turn around, and advance toward enemy lines; verify `#cmd-advance` is highlighted in green.
+   - Verify cohort stance labels reflect `ADVANCE` in green.
+2. **Post-Battle Recovery:**
+   - Allow a squad to fully retreat off the map.
+   - Verify return to strategic map has squad auto-selected with $100\text{px}$ safe separation.
+   - Tap ground to march toward a fort without immediate AI collision.

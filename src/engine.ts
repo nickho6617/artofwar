@@ -127,6 +127,13 @@ export class GameEngine {
             return;
           }
 
+          const playerCohorts = b.cohorts.filter(
+            (c) => c.faction === 'PLAYER' && isCohortActive(c)
+          );
+          const allRetreating =
+            playerCohorts.length > 0 &&
+            playerCohorts.every((c) => c.stance === 'RETREAT');
+
           for (const c of b.cohorts) {
             const hasType =
               b.selected instanceof Set
@@ -135,10 +142,17 @@ export class GameEngine {
             if (
               c.faction === 'PLAYER' &&
               isCohortActive(c) &&
-              (command.stance === 'RETREAT' || hasType)
+              (command.stance === 'RETREAT' || allRetreating || hasType)
             ) {
               c.stance = command.stance;
+              if (command.stance !== 'RETREAT') {
+                c.retreatLinger = undefined;
+              }
             }
+          }
+
+          if (allRetreating && (command.stance === 'ADVANCE' || command.stance === 'HOLD')) {
+            b.selected = new Set(TYPES);
           }
         }
         break;
@@ -240,6 +254,13 @@ export class GameEngine {
     }
 
     for (const s of this.state.squads) {
+      if (s.retreatCooldown !== undefined && s.retreatCooldown > 0) {
+        s.retreatCooldown = Math.max(0, s.retreatCooldown - dt);
+        if (s.retreatCooldown === 0) {
+          s.retreatCooldown = undefined;
+        }
+      }
+
       const dx = s.targetX - s.x;
       const dy = s.targetY - s.y;
       const d = Math.hypot(dx, dy);
@@ -273,6 +294,12 @@ export class GameEngine {
 
     for (const p of this.state.squads.filter((s) => s.faction === 'PLAYER')) {
       for (const a of this.state.squads.filter((s) => s.faction === 'AI')) {
+        if (
+          (p.retreatCooldown && p.retreatCooldown > 0) ||
+          (a.retreatCooldown && a.retreatCooldown > 0)
+        ) {
+          continue;
+        }
         if (dist(p, a) < ENGAGE_R) {
           const totalP = totalSquadUnits(p);
           const totalA = totalSquadUnits(a);
@@ -548,11 +575,23 @@ export class GameEngine {
 
         const edgeX = c.faction === 'PLAYER' ? 0 : AW;
         c.x += Math.sign(edgeX - c.x) * st.speed * 1.05 * dt;
-        if (
+        const atEdge =
           (c.faction === 'PLAYER' && c.x - cohortRadius(c) <= 0) ||
-          (c.faction === 'AI' && c.x + cohortRadius(c) >= AW)
-        ) {
-          c.retreated = true;
+          (c.faction === 'AI' && c.x + cohortRadius(c) >= AW);
+        if (atEdge) {
+          if (c.faction === 'PLAYER') {
+            c.x = cohortRadius(c);
+          } else {
+            c.x = AW - cohortRadius(c);
+          }
+          if (c.retreatLinger === undefined) {
+            c.retreatLinger = 1.5;
+          } else {
+            c.retreatLinger -= dt;
+            if (c.retreatLinger <= 0) {
+              c.retreated = true;
+            }
+          }
         }
         continue;
       }
@@ -630,10 +669,11 @@ export class GameEngine {
       const ux = d > 1 ? (loser.x - from.x) / d : 0;
       const uy =
         d > 1 ? (loser.y - from.y) / d : loser.faction === 'PLAYER' ? 1 : -1;
-      loser.x = clamp(loser.x + ux * 60, 10, W - 10);
-      loser.y = clamp(loser.y + uy * 60, 10, H - 10);
+      loser.x = clamp(loser.x + ux * 100, 10, W - 10);
+      loser.y = clamp(loser.y + uy * 100, 10, H - 10);
       loser.targetX = loser.x;
       loser.targetY = loser.y;
+      loser.retreatCooldown = 3.0;
     };
 
     if (!pActive) pushBack(p, a);
@@ -644,6 +684,9 @@ export class GameEngine {
     }
 
     this.state.squads = this.state.squads.filter((s) => totalSquadUnits(s) > 0);
+    if (this.state.squads.some((s) => s.id === p.id)) {
+      this.state.selectedId = p.id;
+    }
     this.state.activeBattle = null;
     this.state.mode = 'STRATEGIC';
     this.checkWin();

@@ -151,6 +151,8 @@ pub struct Squad {
     pub veteran: bool,
     #[serde(rename = "mergeTargetId", default, skip_serializing_if = "Option::is_none")]
     pub merge_target_id: Option<String>,
+    #[serde(rename = "retreatCooldown", default, skip_serializing_if = "Option::is_none")]
+    pub retreat_cooldown: Option<f32>,
 }
 
 impl Squad {
@@ -170,6 +172,8 @@ pub struct TacticalCohort {
     pub stance: Stance,
     pub cooldown: f32,
     pub retreated: bool,
+    #[serde(rename = "retreatLinger", default, skip_serializing_if = "Option::is_none")]
+    pub retreat_linger: Option<f32>,
 }
 
 impl TacticalCohort {

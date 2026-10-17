@@ -152,4 +152,44 @@ mod tests {
         // Weighted average: (50*10 + 70*20) / 30 = (500 + 1400)/30 = 63.33 + 15 = 78.33 -> round 78.0
         assert_eq!(p1.condition, 78.0);
     }
+
+    #[test]
+    fn test_tactical_retreat_and_turnaround() {
+        let mut engine = CoreGameEngine::new();
+        let a0_pos = {
+            let a0 = engine.state.squads.iter().find(|s| s.id == "A0").unwrap();
+            (a0.x, a0.y)
+        };
+        if let Some(p0) = engine.state.squads.iter_mut().find(|s| s.id == "P0") {
+            p0.x = a0_pos.0;
+            p0.y = a0_pos.1 + 10.0;
+            p0.target_x = a0_pos.0;
+            p0.target_y = a0_pos.1;
+        }
+
+        engine.tick(0.05);
+        assert_eq!(engine.state.mode, GameMode::Tactical);
+
+        // Order retreat
+        engine.dispatch(GameCommand::SetTacticalStance {
+            stance: Stance::Retreat,
+        });
+        let b = engine.state.active_battle.as_ref().unwrap();
+        assert!(b
+            .cohorts
+            .iter()
+            .filter(|c| c.faction == Faction::Player && c.is_active())
+            .all(|c| c.stance == Stance::Retreat));
+
+        // Now issue Advance: all player cohorts should turn around to Advance
+        engine.dispatch(GameCommand::SetTacticalStance {
+            stance: Stance::Advance,
+        });
+        let b = engine.state.active_battle.as_ref().unwrap();
+        assert!(b
+            .cohorts
+            .iter()
+            .filter(|c| c.faction == Faction::Player && c.is_active())
+            .all(|c| c.stance == Stance::Advance));
+    }
 }
